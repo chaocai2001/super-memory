@@ -1,4 +1,4 @@
-# super-memory
+# Super Memory -- 基于LLM wiki的记忆系统
 
 给 [Codex](https://openai.com/codex/) 装上**跨会话的长期记忆**。
 
