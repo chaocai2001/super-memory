@@ -47,7 +47,14 @@ if grep -q '<!-- super-memory:start -->' "$AGENTS"; then
 fi
 printf '\n%s\n' "$SNIPPET" >> "$AGENTS"
 
-# 4. launchd 定时消化（仅 macOS）
+# 4. codex 沙箱放行记忆目录（幂等；避免记忆写入触发 auto_review 审批 503。失败不阻断安装）
+step "配置 $CODEX_HOME/config.toml：沙箱直接可写 $HOME/.super-memory"
+if ! "$REPO_DIR/.venv/bin/python" "$REPO_DIR/scripts/codex_config.py" install \
+        --codex-home "$CODEX_HOME" --memory-dir "$HOME/.super-memory"; then
+    echo "警告: config.toml 自动配置失败，请按上面提示手动加入 writable_roots" >&2
+fi
+
+# 5. launchd 定时消化（仅 macOS）
 if [[ "$WITH_LAUNCHD" -eq 1 ]]; then
     if [[ "$(uname)" != "Darwin" ]]; then
         step "非 macOS，跳过 launchd（可用 cron 代替：每 6 小时执行 $REPO_DIR/scripts/digest.sh）"

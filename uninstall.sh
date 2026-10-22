@@ -26,6 +26,13 @@ if [[ -f "$AGENTS" ]] && grep -q '<!-- super-memory:start -->' "$AGENTS"; then
     mv "$AGENTS.tmp" "$AGENTS"
 fi
 
+PYBIN="$REPO_DIR/.venv/bin/python"
+[[ -x "$PYBIN" ]] || PYBIN="${PYTHON:-python3}"
+step "从 config.toml 移除 ~/.super-memory 沙箱放行"
+"$PYBIN" "$REPO_DIR/scripts/codex_config.py" remove \
+    --codex-home "$CODEX_HOME" --memory-dir "$HOME/.super-memory" 2>/dev/null \
+    || echo "跳过 config.toml 清理（python 不可用或配置不存在）"
+
 if [[ "$PURGE" -eq 1 ]]; then
     step "删除记忆数据 ~/.super-memory 与 .venv"
     rm -rf "$HOME/.super-memory" "$REPO_DIR/.venv"

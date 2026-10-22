@@ -51,7 +51,8 @@ cd super-memory
 1. 创建 `.venv` 并安装 `supermemory` CLI
 2. 安装 codex skill 到 `~/.codex/skills/super-memory/`（触发词：记忆 / 消化积压 / 沉淀记忆 / remember / recall）
 3. 向 `~/.codex/AGENTS.md` 追加记忆协议块（幂等，带标记注释，可安全重装）
-4. 注册 launchd 定时任务 `com.supermemory.digest`（每 6 小时消化一次；`./install.sh --no-launchd` 可跳过）
+4. 把 `~/.super-memory` 合并进 `~/.codex/config.toml` 的 `[sandbox_workspace_write].writable_roots`（幂等；让 codex 沙箱直接可写记忆目录，记忆更新不触发审批，规避 auto_review 审批服务 503）
+5. 注册 launchd 定时任务 `com.supermemory.digest`（每 6 小时消化一次；`./install.sh --no-launchd` 可跳过）
 
 要求：macOS（launchd 定时任务）；Linux 下 skill 与协议照常工作，定时消化可自行用 cron 跑 `scripts/digest.sh`。
 
@@ -121,7 +122,7 @@ launchctl print gui/$(id -u)/com.supermemory.digest      # 查看状态
 ## 卸载
 
 ```bash
-./uninstall.sh           # 移除 launchd 任务、skill、AGENTS.md 协议块（保留记忆数据）
+./uninstall.sh           # 移除 launchd 任务、skill、AGENTS.md 协议块与 config.toml 沙箱放行（保留记忆数据）
 ./uninstall.sh --purge   # 连同 ~/.super-memory 记忆数据与 .venv 一起删除
 ```
 
@@ -129,6 +130,7 @@ launchctl print gui/$(id -u)/com.supermemory.digest      # 查看状态
 
 | 现象 | 处理 |
 |---|---|
+| 更新记忆时报「权限审批服务持续返回 503」 | 审批走了 `approvals_reviewer = "auto_review"` 但模型网关没有 codex-auto-review 通道。先重跑 `./install.sh`（自动把 `~/.super-memory` 并入 `writable_roots`，记忆写入即不再触发审批）；仍触发审批时在 `~/.codex/config.toml` 顶层设 `approvals_reviewer = "user"` 并完全重启 codex。重启后仍被强制 auto_review 说明被组织托管策略覆盖，需管理员调整 |
 | codex 没有自动召回 | 对它说「请按 super-memory skill 的协议工作」；确认 `~/.codex/AGENTS.md` 含协议块 |
 | 定时任务没跑 | `launchctl print gui/$(id -u)/com.supermemory.digest` 看 last exit code；查 `~/.super-memory/digest.log` |
 | 仓库移动了位置 | 重跑 `./install.sh`（幂等，会刷新所有绝对路径） |
@@ -149,6 +151,7 @@ codex/
   AGENTS.snippet.md    # AGENTS.md 协议块模板
 scripts/
   digest.sh            # 定时消化入口
+  codex_config.py      # config.toml 沙箱放行幂等合并（install/uninstall 共用）
   com.supermemory.digest.plist  # launchd 模板
 install.sh / uninstall.sh
 ```

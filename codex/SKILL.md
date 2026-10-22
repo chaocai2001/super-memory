@@ -80,3 +80,11 @@ $SM apply --ops /tmp/sm-ops.json --checkpoint /tmp/sm-pending.json
 - 当前会话的日志会在下次会话时自动进入 pending 积压 —— 不需要在会话进行中蒸馏自己，协议二会自然覆盖。
 - `$SM status` 查看 wiki 页面数与消化进度。
 - 若配置了 `SUPER_MEMORY_BASE_URL/API_KEY/MODEL`，也可用 `$SM ingest` 走 API 批量蒸馏（等价于协议二的无人值守版）。
+
+## 故障处理：记忆写入审批持续 503
+
+如果 `apply` 或写入 `~/.super-memory` 时反复出现「权限审批服务持续返回 503」（根因：`approvals_reviewer = "auto_review"` 但模型网关没有 codex-auto-review 通道）：
+
+- **不要反复重试**，先继续用户的任务，记忆写入延后。
+- 告知用户修复方法：确认 `~/.super-memory` 已在 `~/.codex/config.toml` 的 `[sandbox_workspace_write].writable_roots` 中（重跑安装脚本可自动修复）；仍触发审批时在 config.toml 顶层设置 `approvals_reviewer = "user"`，然后完全退出并重启 codex。若重启后仍被强制为 auto_review，说明被组织托管策略覆盖，需管理员调整。
+- 提醒用户：手动编辑 config.toml 时，`[sandbox_workspace_write]` 表头会吞掉它后面的所有键——`model_provider`、`model` 等顶层键必须放在表头之前，否则会被忽略导致「API key 无效」。
