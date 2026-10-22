@@ -70,8 +70,8 @@ cd super-memory
 
 ```bash
 .venv/bin/supermemory status            # wiki 页数、消化进度
-.venv/bin/supermemory search "MCP"      # 关键词检索（英文分词 + 中文 bigram）
-.venv/bin/supermemory inject "SaaS"     # agent 实际会收到的记忆块
+.venv/bin/supermemory search "MCP" "网关"      # 关键词检索，可传多个改写查询（英文分词+词干 + 中文 bigram/unigram）
+.venv/bin/supermemory inject "SaaS" "订阅制"   # agent 实际会收到的记忆块
 cat ~/.super-memory/wiki/index.md       # 浏览全部记忆页（markdown，可直接用 Obsidian 打开）
 ```
 
@@ -85,8 +85,8 @@ supermemory [--wiki-dir DIR] [--state-dir DIR] <command>
 |---|---|
 | `pending [--json] [--limit N]` | 列出有待消化字节的会话；`--json` 输出 checkpoint 供 `apply` 使用 |
 | `apply --ops FILE --checkpoint FILE` | 校验并落盘 ops JSON，按确认契约推进游标 |
-| `inject <query> [--max-chars N]` | 输出可注入会话的相关记忆块（默认 4000 字符） |
-| `search <query> [-n N]` | 关键词检索 |
+| `inject <query>... [--max-chars N]` | 输出可注入会话的相关记忆块（默认 4000 字符）；query 可传多个改写（中英/同义词）提高召回 |
+| `search <query>... [-n N]` | 关键词检索（英文分词+词干、中文 bigram+unigram）；query 可传多个 |
 | `status` | wiki 规模与消化进度 |
 | `ingest [--dry-run] [--reprocess]` | 备选：调 OpenAI 兼容 API 的无人值守批量蒸馏（需 `SUPER_MEMORY_BASE_URL/API_KEY/MODEL`） |
 
@@ -131,7 +131,7 @@ launchctl print gui/$(id -u)/com.supermemory.digest      # 查看状态
 | 现象 | 处理 |
 |---|---|
 | 更新记忆时报「权限审批服务持续返回 503」 | 审批走了 `approvals_reviewer = "auto_review"` 但模型网关没有 codex-auto-review 通道。先重跑 `./install.sh`（自动把 `~/.super-memory` 并入 `writable_roots`，记忆写入即不再触发审批）；仍触发审批时在 `~/.codex/config.toml` 顶层设 `approvals_reviewer = "user"` 并完全重启 codex。重启后仍被强制 auto_review 说明被组织托管策略覆盖，需管理员调整 |
-| codex 没有自动召回 | 对它说「请按 super-memory skill 的协议工作」；确认 `~/.codex/AGENTS.md` 含协议块 |
+| codex 没有自动召回 | 对它说「请按 super-memory skill 的协议工作」；确认 `~/.codex/AGENTS.md` 含协议块；协议块陈旧时重跑 `./install.sh` 刷新 |
 | 定时任务没跑 | `launchctl print gui/$(id -u)/com.supermemory.digest` 看 last exit code；查 `~/.super-memory/digest.log` |
 | 仓库移动了位置 | 重跑 `./install.sh`（幂等，会刷新所有绝对路径） |
 | 想重建全部记忆 | 删除 `~/.super-memory/state.json`（重扫历史）或整个 `~/.super-memory/`（连 wiki 一起重来） |
@@ -158,7 +158,7 @@ install.sh / uninstall.sh
 
 ## 设计边界（有意不做）
 
-- 无向量数据库/embedding——关键词检索在页面量级内足够，`search.py` 留作扩展点
+- 无向量数据库/embedding——关键词检索（支持一次传多个改写查询，由 LLM 调用方做语义桥接）在页面量级内足够，`search.py` 留作扩展点
 - 只适配 codex 日志格式——其它 agent 需在 `parser.py` 加适配器
 - 无 Web UI——wiki 就是 markdown
 

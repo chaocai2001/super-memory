@@ -9,7 +9,7 @@ from .wiki import Page, WikiStore
 
 
 def tokenize(text: str) -> list[str]:
-    """ASCII words plus CJK bigrams, lowercased."""
+    """ASCII words plus CJK bigrams, lowercased (lone CJK chars kept)."""
     text = text.lower()
     tokens = re.findall(r"[a-z0-9_][a-z0-9_\-\.]*", text)
     cjk = re.findall(r"[一-鿿]+", text)
@@ -19,6 +19,22 @@ def tokenize(text: str) -> list[str]:
         else:
             tokens.extend(run[i:i + 2] for i in range(len(run) - 1))
     return tokens
+
+
+def weak_tokenize(text: str) -> list[str]:
+    """Low-confidence tokens: CJK unigrams from multi-char runs, crude English stems."""
+    text = text.lower()
+    weak: list[str] = []
+    for run in re.findall(r"[一-鿿]+", text):
+        if len(run) > 1:
+            weak.extend(run)
+    for tok in re.findall(r"[a-z]+", text):
+        if len(tok) > 4:
+            for suf in ("ing", "ed", "es", "s"):
+                if tok.endswith(suf) and len(tok) - len(suf) >= 3:
+                    weak.append(tok[:-len(suf)])
+                    break
+    return [t for t in dict.fromkeys(weak) if t not in tokenize(text)]
 
 
 @dataclass
@@ -41,30 +57,44 @@ def _snippet(page: Page, query_tokens: list[str], width: int = 200) -> str:
     return body[:width].replace("\n", " ")
 
 
-def search(store: WikiStore, query: str, limit: int = 5) -> list[Hit]:
-    q_tokens = tokenize(query)
-    if not q_tokens:
-        return []
-    hits: list[Hit] = []
-    for page in store.list_pages():
-        score = 0.0
-        slug_tokens = tokenize(page.slug)
-        title_low = page.title.lower()
-        summary_low = page.summary.lower()
-        body_text = "\n".join(page.sections.values()).lower()
-        for tok in q_tokens:
-            if tok in slug_tokens or tok in title_low:
-                score += 5.0
-            if tok in summary_low:
-                score += 3.0
-            score += min(body_text.count(tok), 10) * 1.0
-        if score > 0:
-            hits.append(Hit(page=page, score=score, snippet=_snippet(page, q_tokens)))
+def _score_page(page: Page, q_tokens: list[str], q_weak: list[str]) -> float:
+    score = 0.0
+    slug_tokens = tokenize(page.slug)
+    title_low = page.title.lower()
+    summary_low = page.summary.lower()
+    body_text = "\n".join(page.sections.values()).lower()
+    for tok in q_tokens:
+        if tok in slug_tokens or tok in title_low:
+            score += 5.0
+        if tok in summary_low:
+            score += 3.0
+        score += min(body_text.count(tok), 10) * 1.0
+    for tok in q_weak:
+        score += min(body_text.count(tok), 10) * 0.5
+    return score
+
+
+def search(store: WikiStore, query: str | list[str], limit: int = 5) -> list[Hit]:
+    queries = [query] if isinstance(query, str) else list(query)
+    pages = store.list_pages()
+    best: dict[str, tuple[Page, float, list[str]]] = {}
+    for q in queries:
+        q_tokens = tokenize(q)
+        if not q_tokens:
+            continue
+        q_weak = weak_tokenize(q)
+        for page in pages:
+            score = _score_page(page, q_tokens, q_weak)
+            if score > 0:
+                prev = best.get(page.slug)
+                if prev is None or score > prev[1]:
+                    best[page.slug] = (page, score, q_tokens)
+    hits = [Hit(page=p, score=s, snippet=_snippet(p, toks)) for p, s, toks in best.values()]
     hits.sort(key=lambda h: h.score, reverse=True)
     return hits[:limit]
 
 
-def build_injection(store: WikiStore, query: str, max_chars: int = 4000, limit: int = 5) -> str:
+def build_injection(store: WikiStore, query: str | list[str], max_chars: int = 4000, limit: int = 5) -> str:
     """Render top hits as a memory block suitable for pasting into a new session."""
     hits = search(store, query, limit=limit)
     if not hits:

@@ -261,12 +261,12 @@ def main(argv: list[str] | None = None) -> int:
     p_apply.set_defaults(func=cmd_apply)
 
     p_search = sub.add_parser("search", help="keyword search over wiki pages")
-    p_search.add_argument("query")
+    p_search.add_argument("query", nargs="+", help="one or more query variants (paraphrases, synonyms, 中英)")
     p_search.add_argument("-n", type=int, default=5)
     p_search.set_defaults(func=cmd_search)
 
     p_inject = sub.add_parser("inject", help="render relevant memory as a paste-ready markdown block")
-    p_inject.add_argument("query")
+    p_inject.add_argument("query", nargs="+", help="one or more query variants (paraphrases, synonyms, 中英)")
     p_inject.add_argument("--max-chars", type=int, default=4000)
     p_inject.set_defaults(func=cmd_inject)
 
