@@ -1,6 +1,6 @@
 # Super Memory -- 基于LLM wiki的记忆系统
 
-给 [Codex](https://openai.com/codex/) 和 [opencode](https://opencode.ai) 装上**跨会话的长期记忆**。
+**跨Harness的长期记忆**。
 
 super-memory 读取 agent 的会话日志（codex 的 `~/.codex/sessions/**/*.jsonl`、opencode 的 `~/.local/share/opencode/opencode.db` sqlite 库，旧版 JSON 目录 `storage/` 作为回落），让 agent 自己把值得长期记住的知识（架构决策、项目约定、踩坑与解法、环境事实、你的偏好）蒸馏进一个纯 markdown 的 **LLM wiki**；开新任务时，相关记忆自动注入 agent 上下文。无需额外的 LLM API key——"判断什么值得记"由 agent 自己完成，CLI 只做确定性的解析、落盘与检索。
 
