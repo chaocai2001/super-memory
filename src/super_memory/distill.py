@@ -25,8 +25,94 @@ class DistillError(RuntimeError):
     pass
 
 
+def _strip_jsonc(text: str) -> str:
+    """Remove // and /* */ comments (string-aware) and trailing commas."""
+    out = []
+    i, n = 0, len(text)
+    in_str = False
+    while i < n:
+        c = text[i]
+        if in_str:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if c == '"':
+                in_str = False
+            i += 1
+            continue
+        if c == '"':
+            in_str = True
+            out.append(c)
+            i += 1
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                i += 1
+            i += 2
+            continue
+        out.append(c)
+        i += 1
+    return re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+
+
+def _opencode_llm_defaults() -> dict:
+    """Read base_url/api_key/model from opencode config (~/.config/opencode/opencode.json[c])."""
+    cfg: dict = {}
+    for name in ("opencode.jsonc", "opencode.json"):
+        path = Path.home() / ".config" / "opencode" / name
+        if not path.is_file():
+            continue
+        try:
+            cfg = json.loads(_strip_jsonc(path.read_text()))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if cfg:
+            break
+    providers = cfg.get("provider") or {}
+    if not isinstance(providers, dict) or not providers:
+        return {}
+    disabled = set(cfg.get("disabled_providers") or [])
+
+    provider_name = model = ""
+    top_model = str(cfg.get("model") or "")
+    if "/" in top_model:
+        pname, mname = top_model.split("/", 1)
+        if pname in providers:
+            provider_name, model = pname, mname
+    if not provider_name:
+        provider_name = next((p for p in providers if p not in disabled), "")
+    if not provider_name:
+        return {}
+    provider = providers.get(provider_name) or {}
+    if not model:
+        models = provider.get("models") or {}
+        model = next(iter(models), "") if isinstance(models, dict) else ""
+
+    options = provider.get("options") or {}
+    base_url = options.get("baseURL") or options.get("baseUrl") or ""
+    api_key = options.get("apiKey") or ""
+    m = re.fullmatch(r"\{env:(\w+)\}", api_key)
+    if m:
+        api_key = os.environ.get(m.group(1), "")
+    if not api_key:
+        try:
+            auth = json.loads((Path.home() / ".local" / "share" / "opencode" / "auth.json").read_text())
+            entry = auth.get(provider_name) or {}
+            api_key = entry.get("key") or ""
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"base_url": base_url, "api_key": api_key, "model": model}
+
+
 def load_config() -> LLMConfig:
-    """Resolve API settings from env, falling back to ~/.codex/config.toml."""
+    """Resolve API settings: env > ~/.codex/config.toml > opencode config."""
     base_url = os.environ.get("SUPER_MEMORY_BASE_URL", "")
     api_key = os.environ.get("SUPER_MEMORY_API_KEY", "")
     model = os.environ.get("SUPER_MEMORY_MODEL", "")
@@ -48,6 +134,15 @@ def load_config() -> LLMConfig:
             if not model:
                 model = cfg.get("model", "")
 
+    if not (base_url and api_key and model):
+        defaults = _opencode_llm_defaults()
+        if not base_url:
+            base_url = defaults.get("base_url", "")
+        if not api_key:
+            api_key = defaults.get("api_key", "")
+        if not model:
+            model = defaults.get("model", "")
+
     missing = [
         name
         for name, val in (("SUPER_MEMORY_BASE_URL", base_url), ("SUPER_MEMORY_API_KEY", api_key), ("SUPER_MEMORY_MODEL", model))
@@ -56,7 +151,8 @@ def load_config() -> LLMConfig:
     if missing:
         raise DistillError(
             "Missing LLM settings: " + ", ".join(missing) +
-            ". Set them as environment variables or configure ~/.codex/config.toml."
+            ". Set them as environment variables or configure ~/.codex/config.toml"
+            " or ~/.config/opencode/opencode.json."
         )
     return LLMConfig(base_url=base_url.rstrip("/"), api_key=api_key, model=model)
 

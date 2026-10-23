@@ -79,7 +79,7 @@ $SM apply --ops /tmp/sm-ops.json --checkpoint /tmp/sm-pending.json
 
 - 当前会话的日志会在下次会话时自动进入 pending 积压 —— 不需要在会话进行中蒸馏自己，协议二会自然覆盖。
 - `$SM status` 查看 wiki 页面数与消化进度。
-- 若配置了 `SUPER_MEMORY_BASE_URL/API_KEY/MODEL`，也可用 `$SM ingest` 走 API 批量蒸馏（等价于协议二的无人值守版）。
+- 也可用 `$SM ingest` 走 API 批量蒸馏（等价于协议二的无人值守版）；LLM 配置按 `SUPER_MEMORY_BASE_URL/API_KEY/MODEL` 环境变量 → codex/opencode 自身配置的顺序解析。
 
 ## 故障处理：记忆写入审批持续 503
 

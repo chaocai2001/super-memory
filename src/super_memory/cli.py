@@ -8,8 +8,8 @@ import sys
 from datetime import date as date_type
 from pathlib import Path
 
+from . import parser_codex, parser_opencode
 from .distill import DistillError, distill, load_config, validate_ops
-from .parser import DEFAULT_SESSIONS_DIR, find_log_files, parse_file, render_transcript
 from .search import build_injection, search
 from .state import DEFAULT_STATE_DIR, State
 from .wiki import DEFAULT_WIKI_DIR, WikiStore
@@ -19,43 +19,109 @@ def _date_of(ts: str) -> str:
     return ts[:10] if ts else date_type.today().isoformat()
 
 
-def _collect_pending(sessions_dir: Path, state: State, wiki: WikiStore, limit: int = 0) -> list[dict]:
-    """Parse every log file past its saved offset; return pending session chunks."""
+def _resolve_sources(selected: list[str] | None) -> list[str]:
+    """Explicit --source wins; otherwise auto-detect by data dir presence."""
+    if selected:
+        return list(dict.fromkeys(selected))
+    found = []
+    if parser_codex.DEFAULT_SESSIONS_DIR.is_dir():
+        found.append("codex")
+    if parser_opencode.default_storage_dir().is_dir() or parser_opencode.default_db_path().is_file():
+        found.append("opencode")
+    return found or ["codex"]
+
+
+def _seed_db_cursors(state: State, db_keys: list[str]) -> None:
+    """Carry legacy JSON-file cursors over to sqlite keys for already-distilled sessions."""
+    legacy: dict[str, int] = {}
+    for key, entry in state.files.items():
+        session_id = entry.get("session_id", "")
+        if key.startswith(parser_opencode.DB_KEY_PREFIX) or not session_id.startswith("ses_"):
+            continue
+        legacy[session_id] = max(legacy.get(session_id, 0), int(entry.get("offset", 0)))
+    for key in db_keys:
+        session_id = key.rsplit("#", 1)[1]
+        if key not in state.files and session_id in legacy:
+            state.mark_distilled(key, legacy[session_id], session_id)
+
+
+def _source_units(source: str, state: State, sessions_dir: Path | None, storage_dir: Path | None,
+                  db_path: Path | None) -> list[tuple[str, str]]:
+    if source == "codex":
+        cdir = sessions_dir or parser_codex.DEFAULT_SESSIONS_DIR
+        return [(str(p), "codex") for p in parser_codex.find_log_files(cdir)]
+    db = db_path or parser_opencode.default_db_path()
+    if db.is_file():
+        keys = parser_opencode.find_db_sessions(db)
+        _seed_db_cursors(state, keys)
+        return [(k, "opencode") for k in keys]
+    odir = storage_dir or parser_opencode.default_storage_dir()
+    return [(str(p), "opencode") for p in parser_opencode.find_sessions(odir)]
+
+
+def _parse_unit(key: str, source: str, cursor: int):
+    if source == "codex":
+        return parser_codex.parse_file(Path(key), cursor)
+    return parser_opencode.parse_unit(key, cursor)
+
+
+def _display_name(key: str) -> str:
+    if key.startswith(parser_opencode.DB_KEY_PREFIX):
+        return key.rsplit("#", 1)[1]
+    return Path(key).name
+
+
+def _render_unit(transcript, source: str) -> str:
+    if source == "codex":
+        return parser_codex.render_transcript(transcript)
+    return parser_opencode.render_transcript(transcript)
+
+
+def _collect_pending(state: State, limit: int = 0, sources: list[str] | None = None,
+                     sessions_dir: Path | None = None, storage_dir: Path | None = None,
+                     db_path: Path | None = None) -> list[dict]:
+    """Parse every enabled source past its saved cursor; return pending session chunks."""
     pending = []
-    for path in find_log_files(sessions_dir):
+    units: list[tuple[str, str]] = []
+    for source in _resolve_sources(sources):
+        units += _source_units(source, state, sessions_dir, storage_dir, db_path)
+    for key, source in units:
         if limit and len(pending) >= limit:
             break
-        key = str(path)
-        offset = state.offset_for(key)
+        cursor = state.offset_for(key)
         try:
-            transcript, end_offset = parse_file(path, offset)
+            transcript, end_cursor = _parse_unit(key, source, cursor)
         except OSError:
             continue
-        if end_offset == offset:
+        if end_cursor == cursor:
             continue
         if transcript is None or not transcript.has_content():
-            state.mark_distilled(key, end_offset, transcript.session_id if transcript else "")
+            state.mark_distilled(key, end_cursor, transcript.session_id if transcript else "")
             continue
         pending.append({
             "source_file": key,
             "session_id": transcript.session_id,
             "date": _date_of(transcript.started_at),
             "cwd": transcript.cwd,
-            "end_offset": end_offset,
+            "end_offset": end_cursor,
             "turns": len(transcript.turns),
-            "transcript": render_transcript(transcript),
+            "transcript": _render_unit(transcript, source),
         })
     return pending
 
 
 def cmd_ingest(args) -> int:
-    sessions_dir = Path(args.sessions_dir).expanduser()
     wiki = WikiStore(Path(args.wiki_dir))
     state = State(Path(args.state_dir) / "state.json")
 
-    files = find_log_files(sessions_dir)
-    if not files:
-        print(f"No jsonl logs found under {sessions_dir}", file=sys.stderr)
+    sessions_dir = Path(args.sessions_dir).expanduser() if args.sessions_dir else None
+    storage_dir = Path(args.storage_dir).expanduser() if args.storage_dir else None
+    db_path = Path(args.db_path).expanduser() if args.db_path else None
+    units: list[tuple[str, str]] = []
+    for source in _resolve_sources(args.source):
+        units += _source_units(source, state, sessions_dir, storage_dir, db_path)
+    if not units:
+        print("No session logs found for enabled sources", file=sys.stderr)
         return 1
 
     cfg = None
@@ -67,29 +133,28 @@ def cmd_ingest(args) -> int:
             return 2
 
     processed = skipped = failed = 0
-    for path in files:
-        key = str(path)
-        offset = 0 if args.reprocess else state.offset_for(key)
+    for key, source in units:
+        cursor = 0 if args.reprocess else state.offset_for(key)
         if args.reprocess:
             state.reset(key)
         try:
-            transcript, end_offset = parse_file(path, offset)
+            transcript, end_cursor = _parse_unit(key, source, cursor)
         except OSError as e:
-            print(f"skip {path.name}: {e}", file=sys.stderr)
+            print(f"skip {_display_name(key)}: {e}", file=sys.stderr)
             skipped += 1
             continue
 
         if transcript is None or not transcript.has_content():
-            state.mark_distilled(key, end_offset, transcript.session_id if transcript else "")
+            state.mark_distilled(key, end_cursor, transcript.session_id if transcript else "")
             skipped += 1
             continue
 
-        text = render_transcript(transcript)
+        text = _render_unit(transcript, source)
         index = wiki.index_summary()
         sess_date = _date_of(transcript.started_at)
 
         if args.dry_run:
-            print(f"===== {path.name} (session {transcript.session_id[:8]}, {len(transcript.turns)} turns) =====")
+            print(f"===== {_display_name(key)} (session {transcript.session_id[:8]}, {len(transcript.turns)} turns) =====")
             print(text[:2000])
             if len(text) > 2000:
                 print(f"…[{len(text) - 2000} more chars]")
@@ -100,7 +165,7 @@ def cmd_ingest(args) -> int:
         try:
             result = distill(text, index, transcript.session_id, sess_date, cfg=cfg)
         except DistillError as e:
-            print(f"distill failed for {path.name}: {e}", file=sys.stderr)
+            print(f"distill failed for {_display_name(key)}: {e}", file=sys.stderr)
             failed += 1
             continue
 
@@ -108,9 +173,9 @@ def cmd_ingest(args) -> int:
         applied = wiki.apply_ops(result["ops"], source_tag, today=sess_date)
         if result.get("log_entry"):
             wiki.append_log(sess_date, transcript.cwd, result["log_entry"], transcript.session_id)
-        state.mark_distilled(key, end_offset, transcript.session_id)
+        state.mark_distilled(key, end_cursor, transcript.session_id)
         state.save()
-        print(f"ingested {path.name}: {len(applied)} ops ({', '.join(applied) or 'none'})")
+        print(f"ingested {_display_name(key)}: {len(applied)} ops ({', '.join(applied) or 'none'})")
         processed += 1
 
     if not args.dry_run:
@@ -120,10 +185,13 @@ def cmd_ingest(args) -> int:
 
 
 def cmd_pending(args) -> int:
-    sessions_dir = Path(args.sessions_dir).expanduser()
     wiki = WikiStore(Path(args.wiki_dir))
     state = State(Path(args.state_dir) / "state.json")
-    pending = _collect_pending(sessions_dir, state, wiki, limit=args.limit)
+    sessions_dir = Path(args.sessions_dir).expanduser() if args.sessions_dir else None
+    storage_dir = Path(args.storage_dir).expanduser() if args.storage_dir else None
+    db_path = Path(args.db_path).expanduser() if args.db_path else None
+    pending = _collect_pending(state, limit=args.limit, sources=args.source,
+                               sessions_dir=sessions_dir, storage_dir=storage_dir, db_path=db_path)
     state.save()
 
     if args.json:
@@ -237,20 +305,28 @@ def cmd_status(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="supermemory",
-        description="Distill codex session logs into an LLM-curated memory wiki.",
+        description="Distill coding-agent (codex / opencode) session logs into an LLM-curated memory wiki.",
     )
     ap.add_argument("--wiki-dir", default=str(DEFAULT_WIKI_DIR), help="wiki directory (default: ~/.super-memory/wiki)")
     ap.add_argument("--state-dir", default=str(DEFAULT_STATE_DIR), help="state directory (default: ~/.super-memory)")
     sub = ap.add_subparsers(dest="command", required=True)
 
     p_ingest = sub.add_parser("ingest", help="parse new log bytes and distill them into the wiki")
-    p_ingest.add_argument("--sessions-dir", default=str(DEFAULT_SESSIONS_DIR))
+    p_ingest.add_argument("--sessions-dir", default=None, help="codex sessions dir (default: ~/.codex/sessions)")
+    p_ingest.add_argument("--storage-dir", default=None, help="opencode legacy JSON storage dir (default: ~/.local/share/opencode/storage)")
+    p_ingest.add_argument("--db-path", default=None, help="opencode sqlite db (default: ~/.local/share/opencode/opencode.db; preferred over storage dir when present)")
+    p_ingest.add_argument("--source", choices=["codex", "opencode"], action="append", default=None,
+                          help="harness to read (repeatable; default: auto-detect all present)")
     p_ingest.add_argument("--reprocess", action="store_true", help="ignore saved offsets and redo everything")
     p_ingest.add_argument("--dry-run", action="store_true", help="print transcripts, do not call the LLM or write the wiki")
     p_ingest.set_defaults(func=cmd_ingest)
 
     p_pending = sub.add_parser("pending", help="list sessions with unprocessed log bytes (for agent-driven distillation)")
-    p_pending.add_argument("--sessions-dir", default=str(DEFAULT_SESSIONS_DIR))
+    p_pending.add_argument("--sessions-dir", default=None, help="codex sessions dir (default: ~/.codex/sessions)")
+    p_pending.add_argument("--storage-dir", default=None, help="opencode legacy JSON storage dir (default: ~/.local/share/opencode/storage)")
+    p_pending.add_argument("--db-path", default=None, help="opencode sqlite db (default: ~/.local/share/opencode/opencode.db; preferred over storage dir when present)")
+    p_pending.add_argument("--source", choices=["codex", "opencode"], action="append", default=None,
+                           help="harness to read (repeatable; default: auto-detect all present)")
     p_pending.add_argument("--json", action="store_true", help="emit JSON checkpoint usable by 'apply'")
     p_pending.add_argument("--limit", type=int, default=0, help="max sessions per batch (0 = all)")
     p_pending.set_defaults(func=cmd_pending)
