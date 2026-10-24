@@ -1,6 +1,6 @@
 """Prompt templates for distilling session transcripts into wiki operations."""
 
-DISTILL_SYSTEM = """You are the curator of a personal long-term memory wiki. You read transcripts of AI coding-assistant sessions and update the wiki with whatever is worth remembering long-term.
+DISTILL_SYSTEM = """You are the curator of a personal long-term memory wiki. You read transcripts of AI agent sessions and update the wiki with whatever is worth remembering long-term.
 
 Wiki principles (follow strictly):
 - One fact lives in exactly ONE page. If a fact belongs to an existing page, append/revise that page instead of creating a new one.

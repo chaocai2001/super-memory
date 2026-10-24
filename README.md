@@ -1,20 +1,20 @@
-# Super Memory -- 基于LLM wiki的记忆系统
+# Super Memory -- AI agent 的跨 harness 长期记忆
 
-**跨Harness的长期记忆**。
+**每次开新会话，你的 AI agent 就失忆一次；换个 harness，记忆直接归零；而平台内置的记忆，你又看不见、改不了、带不走。**
 
-super-memory 读取 agent 的会话日志（codex 的 `~/.codex/sessions/**/*.jsonl`、opencode 的 `~/.local/share/opencode/opencode.db` sqlite 库，旧版 JSON 目录 `storage/` 作为回落），让 agent 自己把值得长期记住的知识（架构决策、项目约定、踩坑与解法、环境事实、你的偏好）蒸馏进一个纯 markdown 的 **LLM wiki**；开新任务时，相关记忆自动注入 agent 上下文。无需额外的 LLM API key——"判断什么值得记"由 agent 自己完成，CLI 只做确定性的解析、落盘与检索。
+super-memory 给 AI agent 装上**跨会话、跨 harness 的长期记忆**：agent 自己把值得长期记住的知识（架构决策、项目约定、踩坑与解法、环境事实、你的偏好）蒸馏进一个本地纯 markdown 的 **LLM wiki**（Karpathy 提出的记忆组织模式），之后任何 harness 的新会话都自动召回。两个设计，对应两笔你能直接感受到的价值：
 
-## 效果
+- **记忆跟着人走，不跟着 harness 走**——周一在 codex 敲定的方案，周三在 opencode 直接生效。背景不用重复交代，决策不重新讨论，坑不踩第二次；换 harness、混用 harness 都不再是代价
+- **召回的是消化过的结论，不是原始碎片**——知识在写入时就被"编译"成 wiki（一个事实一个页面、去重合并、互链），agent 每次拿到的是成品，而不是一堆需要现场重读的原始会话碎片。而且记忆是一目录纯 markdown：agent 记住了什么、记错了什么，你随时看得见、随手改得动、用 git 管得住
 
-```
-周一:  你在 codex 里敲定了「MCP 必须 required=true，失败即终止」的方案
-周三:  新会话里你问「帮我把这个 skill 接到网关上」
-       → agent 自动召回周二的决策，直接按既定方案执行，不再重新讨论
-```
+目前支持 [Codex](https://openai.com/codex/) 和 [opencode](https://opencode.ai)；每个 harness 的适配相互独立（解析器 + skill 模板 + 消化 worker 各一套），接入新 harness 只需照此加一组文件，记忆天然继承。
+
+蒸馏由 agent 在会话中顺带完成，不需要额外的 LLM API key；没有向量数据库，没有服务进程。
+
 
 ## 优势
 
-**跨 harness 的记忆打通——记忆跟着人走，不跟着工具走。**
+**跨 harness 的记忆打通——记忆跟着人走，不跟着 harness 走。**
 
 ```
 周一:  codex    里敲定架构方案      ─┐
@@ -23,9 +23,24 @@ super-memory 读取 agent 的会话日志（codex 的 `~/.codex/sessions/**/*.js
        → 周一的方案、周二的坑都在上下文里 ──┘
 ```
 
-- codex 和 opencode 的会话被蒸馏进**同一个 wiki**：在 codex 里沉淀的决策，在 opencode 的新会话里直接可用，反之亦然。换工具、混用工具都不再意味着记忆清零
-- 记忆是本地纯 markdown（`~/.super-memory/wiki/`），不绑定任何 harness 的私有格式——即使未来换第三个 agent，只要装上对应 skill 就能立刻继承全部历史记忆
+- 不同harness的会话被蒸馏进**同一个 wiki**：在 codex 里沉淀的决策，在 opencode 的新会话里直接可用，反之亦然。换 harness、混用 harness 都不再意味着记忆清零
+- 记忆是本地纯 markdown（`~/.super-memory/wiki/`），不绑定任何 harness 的私有格式——未来接入新 harness（或你自己换用新 agent），只要装上对应 skill 就能立刻继承全部历史记忆
 - 两个 harness 的消化互不干扰又汇入一体：各自独立的解析器和增量游标（codex 按字节偏移、opencode 按 session 更新时间戳），产出遵循同一套 wiki 原则（一个事实一个页面、页面互链、来源可回溯），不会因为来源不同而割裂
+
+**记忆的载体是 Karpathy 式的 LLM wiki——写入时"编译"，而非检索时拼凑。**
+
+主流记忆方案大体三类，super-memory 选了第三条路：
+
+| 方案 | 做法 | 短板 |
+|---|---|---|
+| 平台内置记忆（各 chat 产品的 memory 功能） | provider 黑盒托管 | 锁死在单个产品里：不可看、不可改、带不走，换产品即清零 |
+| RAG / 向量库记忆（Mem0 等） | 原始文本切成碎片存 embedding，每次查询临时检索、现场拼凑 | 检索 ≠ 理解：碎片从未被消化成知识；矛盾事实越积越多；还多一个向量库依赖 |
+| **LLM wiki（本项目）** | LLM 把原始会话**编译**成结构化 wiki 并持续维护 | 需要 agent 参与蒸馏——但这恰好复用 harness 订阅，零额外成本 |
+
+- 模式出自 Karpathy 2026 年 4 月提出的 LLM Wiki（[作为 agent 记忆的分析](https://aaif.io/blog/karpathys-llm-wiki-as-agent-memory)）：原始会话是"源代码"，wiki 是"编译产物"。知识**只消化一次**，之后每次用的是成品，而不是让 LLM 每次重读原料
+- **去重与合并发生在写入时**：一个事实只住一个页面，过时的事实由 `revise` 修正——而不是往向量库里再塞一条和旧切片互相矛盾的新切片
+- `index.md` 按上下文窗口大小设计，agent 一眼看到全部记忆目录；检索只是"翻到对应页面"，理解早在写入时就已完成
+- 这也是跨 harness 打通的地基：wiki 是纯 markdown 的中立格式，天然不属于任何一家 harness
 
 **蒸馏零额外成本。**
 

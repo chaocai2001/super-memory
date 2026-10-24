@@ -305,7 +305,7 @@ def cmd_status(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="supermemory",
-        description="Distill coding-agent (codex / opencode) session logs into an LLM-curated memory wiki.",
+        description="Distill AI agent (codex / opencode) session logs into an LLM-curated memory wiki.",
     )
     ap.add_argument("--wiki-dir", default=str(DEFAULT_WIKI_DIR), help="wiki directory (default: ~/.super-memory/wiki)")
     ap.add_argument("--state-dir", default=str(DEFAULT_STATE_DIR), help="state directory (default: ~/.super-memory)")
