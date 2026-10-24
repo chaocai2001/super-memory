@@ -1,3 +1,5 @@
+[English](README.en.md) | **简体中文**
+
 # Super Memory -- AI agent 的跨 harness 长期记忆
 
 **每次开新会话，你的 AI agent 就失忆一次；换个 harness，记忆直接归零；而平台内置的记忆，你又看不见、改不了、带不走。**
