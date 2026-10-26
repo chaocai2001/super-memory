@@ -29,6 +29,11 @@ super-memory 给 AI agent 装上**跨会话、跨 harness 的长期记忆**：ag
 - 记忆是本地纯 markdown（`~/.super-memory/wiki/`），不绑定任何 harness 的私有格式——未来接入新 harness（或你自己换用新 agent），只要装上对应 skill 就能立刻继承全部历史记忆
 - 两个 harness 的消化互不干扰又汇入一体：各自独立的解析器和增量游标（codex 按字节偏移、opencode 按 session 更新时间戳），产出遵循同一套 wiki 原则（一个事实一个页面、页面互链、来源可回溯），不会因为来源不同而割裂
 
+**不只跨 harness，也跨机器——记忆是可迁移、可版本管理的个人资产。**
+
+- `~/.super-memory/wiki/` 就是一目录纯 markdown，可以复制或同步到另一台机器；装好 super-memory 后即可继续使用，不依赖原机器上的 harness 或会话数据
+- 可以把 wiki 放进 Git 仓库，甚至用 GitHub 私有仓库同步和备份：每次记忆变更都能 diff、review、回溯历史或回滚，记忆不再锁死在某台机器、某个产品里
+
 **记忆的载体是 Karpathy 式的 LLM wiki——写入时"编译"，而非检索时拼凑。**
 
 主流记忆方案大体三类，super-memory 选了第三条路：

@@ -30,6 +30,11 @@ Wed:  open any harness              ─┘    ↑
 - Memory is local plain markdown (`~/.super-memory/wiki/`), not locked into any harness's private format — when a new harness is supported (or you switch to a new agent), installing its skill instantly inherits your entire history
 - Each harness digests independently yet converges into one: separate parsers and incremental cursors (codex by byte offset, opencode by session update timestamp), but the output follows one set of wiki principles (one fact one page, cross-linked pages, traceable sources), so knowledge never fragments by origin
 
+**Not just cross-harness, but cross-machine — your memory is a portable, versionable personal asset.**
+
+- `~/.super-memory/wiki/` is simply a directory of plain markdown: copy or sync it to another machine, install super-memory, and keep using it — no dependency on the original machine's harnesses or session data
+- You can put the wiki in a Git repository, or even use a private GitHub repository to sync and back it up: every memory change can be diffed, reviewed, traced through history, or rolled back. Your memory is no longer locked to one machine or product
+
 **The memory substrate is a Karpathy-style LLM wiki — "compiled" at write time, not assembled at retrieval time.**
 
 Mainstream memory solutions fall into three camps; super-memory takes the third path:
