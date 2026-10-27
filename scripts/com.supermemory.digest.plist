@@ -21,6 +21,8 @@
     <dict>
         <key>SM_DIGEST_BATCHES</key>
         <string>3</string>
+        <key>KIMI_CODE_HOME</key>
+        <string>@KIMI_CODE_HOME@</string>
     </dict>
 </dict>
 </plist>

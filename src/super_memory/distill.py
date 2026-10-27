@@ -111,8 +111,31 @@ def _opencode_llm_defaults() -> dict:
     return {"base_url": base_url, "api_key": api_key, "model": model}
 
 
+def _kimi_llm_defaults() -> dict:
+    """Read OpenAI-compatible settings from Kimi Code config without using OAuth credentials."""
+    kimi_home = Path(os.environ.get("KIMI_CODE_HOME") or Path.home() / ".kimi-code")
+    try:
+        cfg = tomllib.loads((kimi_home / "config.toml").read_text())
+    except (tomllib.TOMLDecodeError, OSError):
+        return {}
+    alias = cfg.get("default_model", "")
+    model_config = (cfg.get("models") or {}).get(alias, {})
+    provider = (cfg.get("providers") or {}).get(model_config.get("provider", ""), {})
+    env = provider.get("env") or {}
+    api_key = provider.get("api_key", "")
+    if not api_key and provider.get("api_key_env"):
+        api_key = os.environ.get(provider["api_key_env"], "")
+    if not api_key:
+        api_key = env.get("KIMI_API_KEY") or env.get("OPENAI_API_KEY") or ""
+    return {
+        "base_url": provider.get("base_url", ""),
+        "api_key": api_key,
+        "model": model_config.get("model", ""),
+    }
+
+
 def load_config() -> LLMConfig:
-    """Resolve API settings: env > ~/.codex/config.toml > opencode config."""
+    """Resolve API settings: env > ~/.codex/config.toml > opencode > Kimi Code config."""
     base_url = os.environ.get("SUPER_MEMORY_BASE_URL", "")
     api_key = os.environ.get("SUPER_MEMORY_API_KEY", "")
     model = os.environ.get("SUPER_MEMORY_MODEL", "")
@@ -143,6 +166,15 @@ def load_config() -> LLMConfig:
         if not model:
             model = defaults.get("model", "")
 
+    if not (base_url and api_key and model):
+        defaults = _kimi_llm_defaults()
+        if not base_url:
+            base_url = defaults.get("base_url", "")
+        if not api_key:
+            api_key = defaults.get("api_key", "")
+        if not model:
+            model = defaults.get("model", "")
+
     missing = [
         name
         for name, val in (("SUPER_MEMORY_BASE_URL", base_url), ("SUPER_MEMORY_API_KEY", api_key), ("SUPER_MEMORY_MODEL", model))
@@ -151,8 +183,8 @@ def load_config() -> LLMConfig:
     if missing:
         raise DistillError(
             "Missing LLM settings: " + ", ".join(missing) +
-            ". Set them as environment variables or configure ~/.codex/config.toml"
-            " or ~/.config/opencode/opencode.json."
+            ". Set them as environment variables or configure ~/.codex/config.toml,"
+            " ~/.config/opencode/opencode.json, or Kimi Code config.toml with an API key."
         )
     return LLMConfig(base_url=base_url.rstrip("/"), api_key=api_key, model=model)
 

@@ -6,6 +6,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 OPENCODE_CONFIG_HOME="${OPENCODE_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
+KIMI_CODE_HOME="${KIMI_CODE_HOME:-$HOME/.kimi-code}"
 PURGE=0
 HARNESSES=()
 
@@ -14,7 +15,7 @@ for arg in "$@"; do
         --purge) PURGE=1 ;;
         --harness=*) HARNESSES+=("${arg#--harness=}") ;;
         -h|--help)
-            echo "usage: ./uninstall.sh [--purge] [--harness codex|opencode|all]"
+            echo "usage: ./uninstall.sh [--purge] [--harness codex|opencode|kimi|all]"
             exit 0 ;;
         *) echo "unknown option: $arg" >&2; exit 2 ;;
     esac
@@ -22,15 +23,18 @@ done
 
 want_codex=0
 want_opencode=0
+want_kimi=0
 if [[ ${#HARNESSES[@]} -eq 0 || " ${HARNESSES[*]} " == *" all "* ]]; then
     want_codex=1
     want_opencode=1
+    want_kimi=1
 else
     for h in "${HARNESSES[@]}"; do
         case "$h" in
             codex) want_codex=1 ;;
             opencode) want_opencode=1 ;;
-            *) echo "unknown harness: $h（可选 codex|opencode|all）" >&2; exit 2 ;;
+            kimi) want_kimi=1 ;;
+            *) echo "unknown harness: $h（可选 codex|opencode|kimi|all）" >&2; exit 2 ;;
         esac
     done
 fi
@@ -46,7 +50,7 @@ remove_agents_block() {
 }
 
 # launchd 定时任务服务所有 harness，只在整体卸载（缺省 all）时移除
-if [[ $want_codex -eq 1 && $want_opencode -eq 1 && "$(uname)" == "Darwin" ]]; then
+if [[ $want_codex -eq 1 && $want_opencode -eq 1 && $want_kimi -eq 1 && "$(uname)" == "Darwin" ]]; then
     step "卸载 launchd 定时任务"
     launchctl bootout "gui/$(id -u)/com.supermemory.digest" 2>/dev/null || true
     rm -f "$HOME/Library/LaunchAgents/com.supermemory.digest.plist"
@@ -69,6 +73,12 @@ if [[ $want_opencode -eq 1 ]]; then
     step "移除 opencode skill 与 AGENTS.md 协议块"
     rm -rf "$OPENCODE_CONFIG_HOME/skills/super-memory"
     remove_agents_block "$OPENCODE_CONFIG_HOME/AGENTS.md"
+fi
+
+if [[ $want_kimi -eq 1 ]]; then
+    step "移除 Kimi Code skill 与 AGENTS.md 协议块"
+    rm -rf "$KIMI_CODE_HOME/skills/super-memory"
+    remove_agents_block "$KIMI_CODE_HOME/AGENTS.md"
 fi
 
 if [[ "$PURGE" -eq 1 ]]; then

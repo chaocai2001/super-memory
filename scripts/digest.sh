@@ -1,6 +1,6 @@
 #!/bin/bash
 # super-memory 定期消化入口（launchd 或手动调用）——调度器。
-# 无积压时直接退出，不起 worker 会话；有积压时优先 codex worker，无 codex 时回落 opencode worker。
+# 无积压时直接退出，不起 worker 会话；有积压时按 codex → opencode → Kimi Code 顺序选择 worker。
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -16,7 +16,10 @@ if [[ -n "${CODEX_BIN:-}" ]] || command -v codex >/dev/null 2>&1 \
     exec "$REPO_DIR/scripts/digest_codex.sh"
 elif command -v opencode >/dev/null 2>&1; then
     exec "$REPO_DIR/scripts/digest_opencode.sh"
+elif command -v kimi >/dev/null 2>&1 \
+        || [[ -x "${KIMI_CODE_HOME:-$HOME/.kimi-code}/bin/kimi" ]]; then
+    exec "$REPO_DIR/scripts/digest_kimi.sh"
 else
-    echo "$(date '+%F %T') neither codex nor opencode CLI found; set CODEX_BIN" >&2
+    echo "$(date '+%F %T') no codex, opencode, or kimi CLI found; set CODEX_BIN or KIMI_BIN" >&2
     exit 1
 fi

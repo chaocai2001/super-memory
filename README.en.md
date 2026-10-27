@@ -9,7 +9,7 @@ super-memory gives AI agents **cross-session, cross-harness long-term memory**: 
 - **Memory follows you, not the harness** — a decision made in codex on Monday is live in opencode on Wednesday. No re-explaining context, no re-litigating decisions, no stepping into the same pit twice; switching or mixing harnesses is no longer a cost
 - **What gets recalled is digested conclusions, not raw fragments** — knowledge is "compiled" into a wiki at write time (one fact per page, dedup and merge, cross-links), so the agent gets finished answers instead of a pile of raw session fragments it has to re-read on the spot. And the memory is just a directory of markdown: you can always see what the agent remembered, fix what it got wrong, and manage it with git
 
-Currently supports [Codex](https://openai.com/codex/) and [opencode](https://opencode.ai); each harness adapter is self-contained (its own parser + skill template + digest worker). Adding a new harness is just another set of files — and all existing memory carries over.
+Currently supports [Codex](https://openai.com/codex/), [opencode](https://opencode.ai), and [Kimi Code](https://www.kimi.com/code/); each harness adapter is self-contained (its own parser + skill template + digest worker). Adding a new harness is just another set of files — and all existing memory carries over.
 
 Distillation happens inside the agent session as a side effect, so no extra LLM API key is needed; no vector database, no server process.
 
@@ -28,7 +28,7 @@ Wed:  open any harness              ─┘    ↑
 
 - Sessions from different harnesses are distilled into **the same wiki**: what you work out in codex is directly usable in a new opencode session, and vice versa. Switching or mixing harnesses no longer means memory loss
 - Memory is local plain markdown (`~/.super-memory/wiki/`), not locked into any harness's private format — when a new harness is supported (or you switch to a new agent), installing its skill instantly inherits your entire history
-- Each harness digests independently yet converges into one: separate parsers and incremental cursors (codex by byte offset, opencode by session update timestamp), but the output follows one set of wiki principles (one fact one page, cross-linked pages, traceable sources), so knowledge never fragments by origin
+- Each harness digests independently yet converges into one: separate parsers and incremental cursors (codex by byte offset, opencode by session update timestamp, Kimi Code by wire.jsonl byte offset), but the output follows one set of wiki principles (one fact one page, cross-linked pages, traceable sources), so knowledge never fragments by origin
 
 **Not just cross-harness, but cross-machine — your memory is a portable, versionable personal asset.**
 
@@ -53,7 +53,7 @@ Mainstream memory solutions fall into three camps; super-memory takes the third 
 **Distillation at zero extra cost.**
 
 - "Judging what's worth remembering" is done by the agent inside its own session, riding on the harness subscription you already pay for — no extra LLM API key to apply for and guard
-- Three automatic triggers (recall at session start, command-word trigger, scheduled launchd digestion) — just use codex / opencode normally, nothing manual
+- Three automatic triggers (recall at session start, command-word trigger, scheduled launchd digestion) — just use codex / opencode / Kimi Code normally, nothing manual
 
 **Deterministic and controllable.**
 
@@ -84,7 +84,7 @@ Mainstream memory solutions fall into three camps; super-memory takes the third 
 
 - **Distillation is done by the agent**: the LLM only "judges", never "stores"; `apply` writes to disk after validating the ops schema
 - **Acknowledgment contract**: the cursor advances only for sessions the agent explicitly lists in its results — batched digestion loses nothing, interruption is resumable
-- **Incremental and idempotent**: codex is read incrementally by byte offset, opencode by session update timestamp; reruns do zero duplicate work, appends auto-dedupe
+- **Incremental and idempotent**: codex is read incrementally by byte offset, opencode by session update timestamp, Kimi Code by wire.jsonl byte offset; reruns do zero duplicate work, appends auto-dedupe
 - **Zero dependencies**: Python ≥ 3.11 standard library only, no third-party packages
 
 ## Installation
@@ -95,13 +95,14 @@ cd super-memory
 ./install.sh                        # default: install for every harness detected on this machine
 ./install.sh --harness codex        # codex only
 ./install.sh --harness opencode     # opencode only (--harness is repeatable)
+./install.sh --harness=kimi         # Kimi Code only
 ```
 
 The install script performs, in order:
 
 1. Create `.venv` and install the `supermemory` CLI
-2. Install the skill per harness (codex → `~/.codex/skills/super-memory/`; opencode → `~/.config/opencode/skills/super-memory/`; trigger words: 记忆 / 消化积压 / 沉淀记忆 / remember / recall)
-3. Append the memory protocol block to each AGENTS.md (codex `~/.codex/AGENTS.md`; opencode `~/.config/opencode/AGENTS.md`) — idempotent, marker-commented, safe to reinstall
+2. Install the skill per harness (codex → `~/.codex/skills/super-memory/`; opencode → `~/.config/opencode/skills/super-memory/`; Kimi Code → `${KIMI_CODE_HOME:-~/.kimi-code}/skills/super-memory/`; trigger words: 记忆 / 消化积压 / 沉淀记忆 / remember / recall)
+3. Append the memory protocol block to each AGENTS.md (codex `~/.codex/AGENTS.md`; opencode `~/.config/opencode/AGENTS.md`; Kimi Code `${KIMI_CODE_HOME:-~/.kimi-code}/AGENTS.md`) — idempotent, marker-commented, safe to reinstall
 4. **[codex only]** Merge `~/.super-memory` into `[sandbox_workspace_write].writable_roots` in `~/.codex/config.toml` (idempotent; lets the codex sandbox write the memory directory directly, so memory updates don't trigger approvals — works around auto_review approval-service 503s)
 5. Register the launchd job `com.supermemory.digest` (digests every 6 hours; skip with `./install.sh --no-launchd`)
 
@@ -109,7 +110,7 @@ Requirements: macOS (for the launchd job); on Linux the skill and protocol work 
 
 ## Usage
 
-After installation, **just use codex / opencode normally** — nothing manual. You can also drive it actively:
+After installation, **just use codex / opencode / Kimi Code normally** — nothing manual. You can also drive it actively:
 
 | You say to the agent | The agent does |
 |---|---|
@@ -134,14 +135,14 @@ supermemory [--wiki-dir DIR] [--state-dir DIR] <command>
 
 | Command | Description |
 |---|---|
-| `pending [--json] [--limit N] [--source S]...` | List sessions pending digestion; `--json` emits a checkpoint for `apply`. `--source codex\|opencode` is repeatable, defaults to auto-detecting installed harnesses; `--sessions-dir` / `--storage-dir` / `--db-path` override default data locations (opencode prefers the sqlite db, falls back to the legacy JSON directory) |
+| `pending [--json] [--limit N] [--source S]...` | List sessions pending digestion; `--json` emits a checkpoint for `apply`. `--source codex\|opencode\|kimi` is repeatable, defaults to auto-detecting installed harnesses; `--sessions-dir` / `--storage-dir` / `--db-path` / `--kimi-home` override default data locations (opencode prefers the sqlite db, falls back to the legacy JSON directory; Kimi Code defaults to `${KIMI_CODE_HOME:-~/.kimi-code}`) |
 | `apply --ops FILE --checkpoint FILE` | Validate and persist ops JSON, advance cursors per the acknowledgment contract |
 | `inject <query>... [--max-chars N]` | Render the relevant-memory block for injection into a session (default 4000 chars); multiple query rephrasings (Chinese/English/synonyms) improve recall |
 | `search <query>... [-n N]` | Keyword search (English tokenize+stem, Chinese bigram+unigram); multiple queries supported |
 | `status` | Wiki size and digestion progress |
-| `ingest [--dry-run] [--reprocess] [--source S]...` | Alternative: unattended batch distillation via an OpenAI-compatible API (LLM config: `SUPER_MEMORY_BASE_URL/API_KEY/MODEL` env vars first, falling back to codex `~/.codex/config.toml` or the provider config in opencode `~/.config/opencode/opencode.json[c]`) |
+| `ingest [--dry-run] [--reprocess] [--source S]...` | Alternative: unattended batch distillation via an OpenAI-compatible API (LLM config: `SUPER_MEMORY_BASE_URL/API_KEY/MODEL` env vars first, then codex, opencode, or Kimi Code provider config). Kimi fallback only reads providers with an API key; OAuth users should use the Skill or `kimi -p` main path, which needs no extra API key |
 
-The ops schema the agent produces and the wiki principles are documented in each harness's skill template (`codex/SKILL.md` / `opencode/SKILL.md`).
+The ops schema the agent produces and the wiki principles are documented in each harness's skill template (`codex/SKILL.md` / `opencode/SKILL.md` / `kimi/SKILL.md`).
 
 ## Managing scheduled digestion
 
@@ -151,11 +152,11 @@ launchctl kickstart gui/$(id -u)/com.supermemory.digest  # trigger immediately
 launchctl print gui/$(id -u)/com.supermemory.digest      # check status
 ```
 
-- `digest.sh` is the scheduler: it exits immediately when there is no backlog (zero token cost); with a backlog it prefers the codex worker (`codex exec --ephemeral`, which produces no new session logs), falling back to the opencode worker (`opencode run`; digestion sessions carry a fixed title prefix and are skipped during parsing)
+- `digest.sh` is the scheduler: it exits immediately when there is no backlog (zero token cost); with a backlog it selects codex (`codex exec --ephemeral`, no new session logs), then opencode (`opencode run`, digest sessions skipped by fixed title prefix), then Kimi Code (`kimi -p`, digest sessions skipped by fixed prompt prefix)
 - Interval: the plist's `StartInterval` (default 21600 seconds = 6 hours)
 - Work per round: the plist's `SM_DIGEST_BATCHES` (default 3 batches × 5 sessions)
 - Logs: `~/.super-memory/digest.log`
-- codex CLI lookup order: `CODEX_BIN` env var → PATH → `/Applications/ChatGPT.app/Contents/Resources/codex`
+- codex CLI lookup order: `CODEX_BIN` env var → PATH → `/Applications/ChatGPT.app/Contents/Resources/codex`; Kimi CLI lookup order: `KIMI_BIN` env var → PATH → `${KIMI_CODE_HOME:-~/.kimi-code}/bin/kimi`
 
 ## Data
 
@@ -164,7 +165,7 @@ launchctl print gui/$(id -u)/com.supermemory.digest      # check status
   wiki/pages/<slug>.md   # entity/topic pages: front-matter (title/summary/sources) + sectioned body + [[cross-links]]
   wiki/index.md          # global index, auto-rebuilt from front-matter
   wiki/log.md            # session timeline
-  state.json             # incremental cursors (codex = byte offset, opencode = session update timestamp; delete to rescan everything)
+  state.json             # incremental cursors (codex/Kimi Code = byte offset, opencode = session update timestamp; delete to rescan everything)
   digest.log             # scheduled-job log
 ```
 
@@ -175,6 +176,7 @@ All memory is plain markdown — edit it directly, manage it with git, or open i
 ```bash
 ./uninstall.sh                        # remove the launchd job, each harness's skill/protocol block, and the codex sandbox grant (memory data is kept)
 ./uninstall.sh --harness opencode     # remove only the opencode integration
+./uninstall.sh --harness=kimi         # remove only the Kimi Code integration
 ./uninstall.sh --purge                # also delete the ~/.super-memory memory data and .venv
 ```
 
@@ -183,8 +185,9 @@ All memory is plain markdown — edit it directly, manage it with git, or open i
 | Symptom | Fix |
 |---|---|
 | "Permission approval service keeps returning 503" when updating memory (codex) | Approvals went through `approvals_reviewer = "auto_review"` but the model gateway has no codex-auto-review channel. First re-run `./install.sh` (it merges `~/.super-memory` into `writable_roots`, after which memory writes no longer trigger approvals); if approvals still trigger, set `approvals_reviewer = "user"` at the top level of `~/.codex/config.toml` and fully restart codex. If auto_review is still forced after restart, an organization managed policy is overriding it — ask your admin |
-| The agent doesn't recall automatically | Tell it "请按 super-memory skill 的协议工作" (work per the super-memory skill protocol); check that the corresponding AGENTS.md (codex `~/.codex/`, opencode `~/.config/opencode/`) contains the protocol block; re-run `./install.sh` to refresh a stale block |
+| The agent doesn't recall automatically | Tell it "请按 super-memory skill 的协议工作" (work per the super-memory skill protocol); check that the corresponding AGENTS.md (codex `~/.codex/`, opencode `~/.config/opencode/`, Kimi Code `${KIMI_CODE_HOME:-~/.kimi-code}/`) contains the protocol block; re-run `./install.sh` to refresh a stale block |
 | opencode sessions not being digested | Newer opencode stores sessions in `~/.local/share/opencode/opencode.db` (sqlite); only older versions use the `storage/` JSON directory. Old super-memory builds only read the JSON directory and miss new sessions — update this repo. Also: confirm the opencode harness was included at install time (`./install.sh --harness opencode`); inspect the backlog directly with `supermemory pending --source opencode` |
+| Kimi Code sessions not being digested | Confirm Kimi Code was included at install time (`./install.sh --harness=kimi`); inspect the backlog with `supermemory pending --source kimi`. For a custom data root, set `KIMI_CODE_HOME` or pass `--kimi-home`. Only the main Agent's `agents/main/wire.jsonl` is parsed; sub-Agent and digest-worker sessions are deliberately skipped |
 | The scheduled job didn't run | `launchctl print gui/$(id -u)/com.supermemory.digest` for the last exit code; check `~/.super-memory/digest.log` |
 | The repo moved | Re-run `./install.sh` (idempotent; refreshes all absolute paths) |
 | Want to rebuild all memory | Delete `~/.super-memory/state.json` (rescan history) or the whole `~/.super-memory/` (start over including the wiki) |
@@ -195,10 +198,11 @@ All memory is plain markdown — edit it directly, manage it with git, or open i
 src/super_memory/      # CLI implementation (standard library, zero dependencies)
   parser_codex.py      #   codex: jsonl → condensed transcript (byte-offset cursor)
   parser_opencode.py   #   opencode: opencode.db sqlite (legacy JSON directory fallback) → condensed transcript (update-timestamp cursor)
+  parser_kimi.py       #   Kimi Code: main-Agent wire.jsonl → condensed transcript (byte-offset cursor)
   state.py             #   incremental cursors
   wiki.py              #   page/index/log persistence
   search.py            #   keyword search and memory-block rendering
-  distill.py           #   OpenAI-compatible API distillation (alternative ingest path; LLM config falls back env → codex/opencode config)
+  distill.py           #   OpenAI-compatible API distillation (alternative ingest path; LLM config falls back env → codex/opencode/Kimi Code config)
   cli.py               #   pending/apply/inject/search/status/ingest
 codex/                 # codex harness templates
   SKILL.md             #   codex skill (absolute paths rendered at install time)
@@ -206,13 +210,17 @@ codex/                 # codex harness templates
 opencode/              # opencode harness templates (independent from the codex side; they evolve separately)
   SKILL.md
   AGENTS.snippet.md
+kimi/                  # Kimi Code harness templates
+  SKILL.md
+  AGENTS.snippet.md
 scripts/
   digest.sh            # scheduled-digestion dispatcher (launchd entry point)
   digest_codex.sh      # codex digestion worker
   digest_opencode.sh   # opencode digestion worker
+  digest_kimi.sh       # Kimi Code digestion worker
   codex_config.py      # idempotent config.toml sandbox-grant merge (shared by install/uninstall)
   com.supermemory.digest.plist  # launchd template
-install.sh / uninstall.sh   # --harness codex|opencode|all
+install.sh / uninstall.sh   # --harness codex|opencode|kimi|all
 ```
 
 ## Design boundaries (deliberately not done)
