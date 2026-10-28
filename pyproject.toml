@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "super-memory"
 version = "0.1.0"
-description = "Cross-harness LLM wiki memory built from Codex, opencode, and Kimi Code sessions"
+description = "Cross-harness LLM wiki memory built from Codex, opencode, Kimi Code, and Claude Code sessions"
 requires-python = ">=3.11"
 dependencies = []
 

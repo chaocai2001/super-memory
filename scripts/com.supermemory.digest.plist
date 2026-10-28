@@ -23,6 +23,8 @@
         <string>3</string>
         <key>KIMI_CODE_HOME</key>
         <string>@KIMI_CODE_HOME@</string>
+        <key>CLAUDE_CONFIG_DIR</key>
+        <string>@CLAUDE_CONFIG_DIR@</string>
     </dict>
 </dict>
 </plist>

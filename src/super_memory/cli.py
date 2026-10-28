@@ -8,7 +8,7 @@ import sys
 from datetime import date as date_type
 from pathlib import Path
 
-from . import parser_codex, parser_kimi, parser_opencode
+from . import parser_claude, parser_codex, parser_kimi, parser_opencode
 from .distill import DistillError, distill, load_config, validate_ops
 from .search import build_injection, search
 from .state import DEFAULT_STATE_DIR, State
@@ -30,6 +30,8 @@ def _resolve_sources(selected: list[str] | None) -> list[str]:
         found.append("opencode")
     if parser_kimi.default_sessions_dir().is_dir():
         found.append("kimi")
+    if parser_claude.default_projects_dir().is_dir():
+        found.append("claude")
     return found or ["codex"]
 
 
@@ -48,13 +50,17 @@ def _seed_db_cursors(state: State, db_keys: list[str]) -> None:
 
 
 def _source_units(source: str, state: State, sessions_dir: Path | None, storage_dir: Path | None,
-                  db_path: Path | None, kimi_home: Path | None) -> list[tuple[str, str]]:
+                  db_path: Path | None, kimi_home: Path | None,
+                  claude_home: Path | None) -> list[tuple[str, str]]:
     if source == "codex":
         cdir = sessions_dir or parser_codex.DEFAULT_SESSIONS_DIR
         return [(str(p), "codex") for p in parser_codex.find_log_files(cdir)]
     if source == "kimi":
         khome = kimi_home or parser_kimi.default_kimi_home()
         return [(str(p), "kimi") for p in parser_kimi.find_log_files(khome)]
+    if source == "claude":
+        chome = claude_home or parser_claude.default_claude_home()
+        return [(str(p), "claude") for p in parser_claude.find_log_files(chome)]
     db = db_path or parser_opencode.default_db_path()
     if db.is_file():
         keys = parser_opencode.find_db_sessions(db)
@@ -69,6 +75,8 @@ def _parse_unit(key: str, source: str, cursor: int):
         return parser_codex.parse_file(Path(key), cursor)
     if source == "kimi":
         return parser_kimi.parse_file(Path(key), cursor)
+    if source == "claude":
+        return parser_claude.parse_file(Path(key), cursor)
     return parser_opencode.parse_unit(key, cursor)
 
 
@@ -83,17 +91,20 @@ def _render_unit(transcript, source: str) -> str:
         return parser_codex.render_transcript(transcript)
     if source == "kimi":
         return parser_kimi.render_transcript(transcript)
+    if source == "claude":
+        return parser_claude.render_transcript(transcript)
     return parser_opencode.render_transcript(transcript)
 
 
 def _collect_pending(state: State, limit: int = 0, sources: list[str] | None = None,
                      sessions_dir: Path | None = None, storage_dir: Path | None = None,
-                     db_path: Path | None = None, kimi_home: Path | None = None) -> list[dict]:
+                     db_path: Path | None = None, kimi_home: Path | None = None,
+                     claude_home: Path | None = None) -> list[dict]:
     """Parse every enabled source past its saved cursor; return pending session chunks."""
     pending = []
     units: list[tuple[str, str]] = []
     for source in _resolve_sources(sources):
-        units += _source_units(source, state, sessions_dir, storage_dir, db_path, kimi_home)
+        units += _source_units(source, state, sessions_dir, storage_dir, db_path, kimi_home, claude_home)
     for key, source in units:
         if limit and len(pending) >= limit:
             break
@@ -127,9 +138,10 @@ def cmd_ingest(args) -> int:
     storage_dir = Path(args.storage_dir).expanduser() if args.storage_dir else None
     db_path = Path(args.db_path).expanduser() if args.db_path else None
     kimi_home = Path(args.kimi_home).expanduser() if args.kimi_home else None
+    claude_home = Path(args.claude_home).expanduser() if args.claude_home else None
     units: list[tuple[str, str]] = []
     for source in _resolve_sources(args.source):
-        units += _source_units(source, state, sessions_dir, storage_dir, db_path, kimi_home)
+        units += _source_units(source, state, sessions_dir, storage_dir, db_path, kimi_home, claude_home)
     if not units:
         print("No session logs found for enabled sources", file=sys.stderr)
         return 1
@@ -201,9 +213,10 @@ def cmd_pending(args) -> int:
     storage_dir = Path(args.storage_dir).expanduser() if args.storage_dir else None
     db_path = Path(args.db_path).expanduser() if args.db_path else None
     kimi_home = Path(args.kimi_home).expanduser() if args.kimi_home else None
+    claude_home = Path(args.claude_home).expanduser() if args.claude_home else None
     pending = _collect_pending(state, limit=args.limit, sources=args.source,
                                sessions_dir=sessions_dir, storage_dir=storage_dir, db_path=db_path,
-                               kimi_home=kimi_home)
+                               kimi_home=kimi_home, claude_home=claude_home)
     state.save()
 
     if args.json:
@@ -317,7 +330,7 @@ def cmd_status(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="supermemory",
-        description="Distill AI agent (codex / opencode / Kimi Code) session logs into an LLM-curated memory wiki.",
+        description="Distill AI agent (codex / opencode / Kimi Code / Claude Code) session logs into an LLM-curated memory wiki.",
     )
     ap.add_argument("--wiki-dir", default=str(DEFAULT_WIKI_DIR), help="wiki directory (default: ~/.super-memory/wiki)")
     ap.add_argument("--state-dir", default=str(DEFAULT_STATE_DIR), help="state directory (default: ~/.super-memory)")
@@ -328,7 +341,8 @@ def main(argv: list[str] | None = None) -> int:
     p_ingest.add_argument("--storage-dir", default=None, help="opencode legacy JSON storage dir (default: ~/.local/share/opencode/storage)")
     p_ingest.add_argument("--db-path", default=None, help="opencode sqlite db (default: ~/.local/share/opencode/opencode.db; preferred over storage dir when present)")
     p_ingest.add_argument("--kimi-home", default=None, help="Kimi Code data dir (default: $KIMI_CODE_HOME or ~/.kimi-code)")
-    p_ingest.add_argument("--source", choices=["codex", "opencode", "kimi"], action="append", default=None,
+    p_ingest.add_argument("--claude-home", default=None, help="Claude Code data dir (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
+    p_ingest.add_argument("--source", choices=["codex", "opencode", "kimi", "claude"], action="append", default=None,
                           help="harness to read (repeatable; default: auto-detect all present)")
     p_ingest.add_argument("--reprocess", action="store_true", help="ignore saved offsets and redo everything")
     p_ingest.add_argument("--dry-run", action="store_true", help="print transcripts, do not call the LLM or write the wiki")
@@ -339,7 +353,8 @@ def main(argv: list[str] | None = None) -> int:
     p_pending.add_argument("--storage-dir", default=None, help="opencode legacy JSON storage dir (default: ~/.local/share/opencode/storage)")
     p_pending.add_argument("--db-path", default=None, help="opencode sqlite db (default: ~/.local/share/opencode/opencode.db; preferred over storage dir when present)")
     p_pending.add_argument("--kimi-home", default=None, help="Kimi Code data dir (default: $KIMI_CODE_HOME or ~/.kimi-code)")
-    p_pending.add_argument("--source", choices=["codex", "opencode", "kimi"], action="append", default=None,
+    p_pending.add_argument("--claude-home", default=None, help="Claude Code data dir (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
+    p_pending.add_argument("--source", choices=["codex", "opencode", "kimi", "claude"], action="append", default=None,
                            help="harness to read (repeatable; default: auto-detect all present)")
     p_pending.add_argument("--json", action="store_true", help="emit JSON checkpoint usable by 'apply'")
     p_pending.add_argument("--limit", type=int, default=0, help="max sessions per batch (0 = all)")
