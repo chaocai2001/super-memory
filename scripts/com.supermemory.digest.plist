@@ -20,7 +20,7 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>SM_DIGEST_BATCHES</key>
-        <string>3</string>
+        <string>10</string>
         <key>KIMI_CODE_HOME</key>
         <string>@KIMI_CODE_HOME@</string>
         <key>CLAUDE_CONFIG_DIR</key>

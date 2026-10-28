@@ -168,7 +168,8 @@ cat <<EOF
 
 接下来：
   - 正常使用已安装的 harness（codex / opencode / Kimi Code / Claude Code）即可：新会话开始非平凡任务时会自动召回记忆并消化积压
-  - 手动触发一次消化: $REPO_DIR/scripts/digest.sh
+  - 手动触发一次消化（默认最多 50 个会话）: $REPO_DIR/scripts/digest.sh
+  - 首次构建记忆且历史会话较多时，可调大单次上限: $REPO_DIR/scripts/digest.sh --max-sessions 500
   - 口令触发: 在 harness 里说「消化积压」「沉淀记忆」「记住: ...」
   - 卸载: $REPO_DIR/uninstall.sh
 EOF

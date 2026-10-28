@@ -149,13 +149,14 @@ The ops schema the agent produces and the wiki principles are documented in each
 
 ```bash
 scripts/digest.sh                                        # trigger once manually (auto-selects the harness worker)
+scripts/digest.sh --max-sessions 200                     # digest at most 200 sessions in this run
 launchctl kickstart gui/$(id -u)/com.supermemory.digest  # trigger immediately
 launchctl print gui/$(id -u)/com.supermemory.digest      # check status
 ```
 
 - `digest.sh` is the scheduler: it exits immediately when there is no backlog (zero token cost); with a backlog it selects codex (`codex exec --ephemeral`, no new session logs), then opencode (`opencode run`, digest sessions skipped by fixed title prefix), then Kimi Code (`kimi -p`, digest sessions skipped by fixed prompt prefix), then Claude Code (`claude -p --no-session-persistence`, worker sessions are not saved)
 - Interval: the plist's `StartInterval` (default 21600 seconds = 6 hours)
-- Work per round: the plist's `SM_DIGEST_BATCHES` (default 3 batches × 5 sessions)
+- Work per round: at most 50 sessions by default. For manual runs, `--max-sessions N` applies only to that run (overriding `SM_DIGEST_MAX_SESSIONS` for the worker without changing persistent configuration); without that command-line option, you can also use `SM_DIGEST_MAX_SESSIONS` or the plist's `SM_DIGEST_BATCHES` (default 10 batches × 5 sessions)
 - Logs: `~/.super-memory/digest.log`
 - codex CLI lookup order: `CODEX_BIN` env var → PATH → `/Applications/ChatGPT.app/Contents/Resources/codex`; Kimi CLI lookup order: `KIMI_BIN` env var → PATH → `${KIMI_CODE_HOME:-~/.kimi-code}/bin/kimi`; Claude CLI lookup order: `CLAUDE_BIN` env var → PATH → `~/.local/bin/claude`
 

@@ -148,13 +148,14 @@ agent 产出的 ops schema 与 wiki 原则详见各 harness 的 skill 模板（`
 
 ```bash
 scripts/digest.sh                                        # 手动触发一次（自动选择 harness worker）
+scripts/digest.sh --max-sessions 200                     # 本次最多消化 200 个会话
 launchctl kickstart gui/$(id -u)/com.supermemory.digest  # 立即触发
 launchctl print gui/$(id -u)/com.supermemory.digest      # 查看状态
 ```
 
 - `digest.sh` 是调度器：无积压直接退出（零 token 消耗）；有积压时按 codex（`codex exec --ephemeral`，不产生新会话日志）→ opencode（`opencode run`，按固定标题前缀跳过消化会话）→ Kimi Code（`kimi -p`，按固定 prompt 前缀跳过消化会话）→ Claude Code（`claude -p --no-session-persistence`，不保存 worker 会话）的顺序选择 worker
 - 间隔：plist 的 `StartInterval`（默认 21600 秒 = 6 小时）
-- 每轮消化量：plist 的 `SM_DIGEST_BATCHES`（默认 3 批 × 5 会话）
+- 每轮消化量：默认最多 50 个会话；手动执行时 `--max-sessions N` 仅对本次运行生效（覆盖本次的 `SM_DIGEST_MAX_SESSIONS`，不修改持久配置）；未传该命令行参数时，也可用 `SM_DIGEST_MAX_SESSIONS` 或 plist 的 `SM_DIGEST_BATCHES`（默认 10 批 × 5 会话）调整
 - 日志：`~/.super-memory/digest.log`
 - codex CLI 定位顺序：`CODEX_BIN` 环境变量 → PATH → `/Applications/ChatGPT.app/Contents/Resources/codex`；Kimi CLI 定位顺序：`KIMI_BIN` 环境变量 → PATH → `${KIMI_CODE_HOME:-~/.kimi-code}/bin/kimi`；Claude CLI 定位顺序：`CLAUDE_BIN` 环境变量 → PATH → `~/.local/bin/claude`
 

@@ -6,6 +6,40 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SM="$REPO_DIR/.venv/bin/supermemory"
 
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --max-sessions)
+            if [[ $# -lt 2 ]]; then
+                echo "--max-sessions requires a positive integer" >&2
+                exit 2
+            fi
+            MAX_SESSIONS="$2"
+            shift 2
+            ;;
+        --max-sessions=*)
+            MAX_SESSIONS="${1#--max-sessions=}"
+            shift
+            ;;
+        -h|--help)
+            echo "usage: ./scripts/digest.sh [--max-sessions N]"
+            echo "  --max-sessions N  limit sessions per run; overrides SM_DIGEST_MAX_SESSIONS"
+            exit 0
+            ;;
+        *)
+            echo "unknown option: $1" >&2
+            exit 2
+            ;;
+    esac
+done
+
+if [[ ${MAX_SESSIONS+x} ]]; then
+    if ! [[ "$MAX_SESSIONS" =~ ^[1-9][0-9]*$ ]]; then
+        echo "--max-sessions requires a positive integer" >&2
+        exit 2
+    fi
+    export SM_DIGEST_MAX_SESSIONS="$MAX_SESSIONS"
+fi
+
 if ! "$SM" pending --json --limit 1 | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin)['sessions'] else 1)"; then
     echo "$(date '+%F %T') no pending sessions, skip"
     exit 0
