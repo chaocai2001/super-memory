@@ -105,12 +105,7 @@ cd super-memory
 ```text
 请安装 super-memory：https://github.com/chaocai2001/super-memory
 
-1. 阅读 README.md 和 install.sh，检查 Python >= 3.11，将仓库克隆到合适位置；如果目录已存在，不要删除或覆盖，先询问我。
-2. 识别当前使用的 harness，只安装当前 harness（codex / opencode / kimi / claude）。修改全局配置或注册定时任务前，说明变更范围并征得我同意。
-3. 运行对应的 ./install.sh --harness=<harness>，不要加 --no-launchd。macOS 上确认 com.supermemory.digest 已注册并每 6 小时运行；Linux 上与我确认后用 cron 设置定时执行 scripts/digest.sh。
-4. 安装后运行 .venv/bin/supermemory status 验证 CLI；macOS 上再运行 launchctl print gui/$(id -u)/com.supermemory.digest 验证定时任务。
-5. 询问我是否立即进行首次记忆蒸馏；经我确认后运行 scripts/digest.sh --max-sessions 500，并检查 ~/.super-memory/digest.log。历史会话较少时可以调低上限。
-6. 最后汇报安装位置、首次蒸馏结果、定时任务状态、使用方法和卸载方法。不要执行 uninstall.sh --purge。
+克隆仓库并运行 ./install.sh，自动为本机检测到的所有 harness 安装记忆。自动识别当前 OS，采用项目支持的方式创建并验证定时蒸馏任务。安装后验证 CLI，再询问我是否立即进行首次记忆蒸馏；经我确认后运行 scripts/digest.sh --max-sessions 500。最后汇报安装、定时任务和首次蒸馏结果。
 ```
 
 安装脚本会依次完成：
