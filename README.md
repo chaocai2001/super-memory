@@ -98,6 +98,21 @@ cd super-memory
 ./install.sh --harness=claude       # 只装 Claude Code
 ```
 
+### 交给你的agent安装
+
+也可以把下面的提示词直接发给支持 shell 的 personal agent，由它完成安装，并引导首次记忆蒸馏和定时任务设置：
+
+```text
+请安装 super-memory：https://github.com/chaocai2001/super-memory
+
+1. 阅读 README.md 和 install.sh，检查 Python >= 3.11，将仓库克隆到合适位置；如果目录已存在，不要删除或覆盖，先询问我。
+2. 识别当前使用的 harness，只安装当前 harness（codex / opencode / kimi / claude）。修改全局配置或注册定时任务前，说明变更范围并征得我同意。
+3. 运行对应的 ./install.sh --harness=<harness>，不要加 --no-launchd。macOS 上确认 com.supermemory.digest 已注册并每 6 小时运行；Linux 上与我确认后用 cron 设置定时执行 scripts/digest.sh。
+4. 安装后运行 .venv/bin/supermemory status 验证 CLI；macOS 上再运行 launchctl print gui/$(id -u)/com.supermemory.digest 验证定时任务。
+5. 询问我是否立即进行首次记忆蒸馏；经我确认后运行 scripts/digest.sh --max-sessions 500，并检查 ~/.super-memory/digest.log。历史会话较少时可以调低上限。
+6. 最后汇报安装位置、首次蒸馏结果、定时任务状态、使用方法和卸载方法。不要执行 uninstall.sh --purge。
+```
+
 安装脚本会依次完成：
 
 1. 创建 `.venv` 并安装 `supermemory` CLI

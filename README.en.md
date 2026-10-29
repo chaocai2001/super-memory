@@ -99,6 +99,21 @@ cd super-memory
 ./install.sh --harness=claude       # Claude Code only
 ```
 
+### Install with a personal agent
+
+Alternatively, send the following prompt to a personal agent with shell access. It will install super-memory and guide you through initial memory distillation and scheduled digestion:
+
+```text
+Install super-memory: https://github.com/chaocai2001/super-memory
+
+1. Read README.md and install.sh, check for Python >= 3.11, and clone the repository to a suitable location. If the directory already exists, do not delete or overwrite it; ask me first.
+2. Identify my current harness and install only for that harness (codex / opencode / kimi / claude). Before changing global configuration or registering a scheduled job, explain the changes and ask for my consent.
+3. Run ./install.sh --harness=<harness> without --no-launchd. On macOS, confirm that com.supermemory.digest is registered to run every 6 hours; on Linux, ask before configuring cron to run scripts/digest.sh.
+4. Verify the CLI with .venv/bin/supermemory status. On macOS, also verify the scheduled job with launchctl print gui/$(id -u)/com.supermemory.digest.
+5. Ask whether I want to run initial memory distillation now. With my confirmation, run scripts/digest.sh --max-sessions 500 and check ~/.super-memory/digest.log. Reduce the limit if there are fewer historical sessions.
+6. Report the installation path, initial distillation result, scheduled-job status, usage, and uninstall instructions. Do not run uninstall.sh --purge.
+```
+
 The install script performs, in order:
 
 1. Create `.venv` and install the `supermemory` CLI
