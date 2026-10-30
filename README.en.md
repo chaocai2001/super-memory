@@ -89,6 +89,26 @@ Mainstream memory solutions fall into three camps; super-memory takes the third 
 
 ## Installation
 
+### Install with your agent
+
+Send this sentence to your agent:
+
+```text
+Install super-memory from https://github.com/chaocai2001/super-memory by following the project documentation. Set up the local integrations and scheduled memory distillation automatically, then ask whether I want to run initial memory distillation.
+```
+
+<details>
+<summary>Agent instructions</summary>
+
+1. Check for Python >= 3.11. Prefer downloading and extracting [main.zip](https://github.com/chaocai2001/super-memory/archive/refs/heads/main.zip), which does not require Git; use Git when updating an existing repository. If the installation directory already exists, do not delete or overwrite it; ask the user first.
+2. Run `./install.sh` from the installation directory to install for every harness detected on the machine.
+3. The installer registers the launchd job on macOS. On Linux, ask for the user's consent before configuring cron to run `scripts/digest.sh` every 6 hours. Verify the CLI with `.venv/bin/supermemory status` and confirm that the scheduled job is active.
+4. Ask whether to run initial memory distillation. With the user's confirmation, run `scripts/digest.sh --max-sessions 500`, check `~/.super-memory/digest.log`, and report the installation, scheduled-job, and initial-distillation results.
+
+</details>
+
+### Manual installation
+
 ```bash
 git clone https://github.com/chaocai2001/super-memory.git
 cd super-memory
@@ -97,16 +117,6 @@ cd super-memory
 ./install.sh --harness opencode     # opencode only (--harness is repeatable)
 ./install.sh --harness=kimi         # Kimi Code only
 ./install.sh --harness=claude       # Claude Code only
-```
-
-### Install with a personal agent
-
-Alternatively, send the following prompt to a personal agent with shell access. It will install super-memory and guide you through initial memory distillation and scheduled digestion:
-
-```text
-Install super-memory: https://github.com/chaocai2001/super-memory
-
-Clone the repository and run ./install.sh to install memory for every harness detected on this machine. Detect the current OS automatically, then create and verify a scheduled digestion job using a method supported by the project. After installation, verify the CLI, then ask whether I want to run initial memory distillation now. With my confirmation, run scripts/digest.sh --max-sessions 500. Finally, report the installation, scheduled-job, and initial-distillation results.
 ```
 
 The install script performs, in order:

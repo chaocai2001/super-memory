@@ -88,6 +88,26 @@ super-memory 给 AI agent 装上**跨会话、跨 harness 的长期记忆**：ag
 
 ## 安装
 
+### 交给你的agent安装
+
+把下面这句话发给你的 agent：
+
+```text
+请按项目文档安装 super-memory：https://github.com/chaocai2001/super-memory，自动完成本机接入和定时记忆蒸馏，并在安装后询问我是否进行首次记忆蒸馏。
+```
+
+<details>
+<summary>Agent 执行细节</summary>
+
+1. 检查 Python >= 3.11。优先下载并解压 [main.zip](https://github.com/chaocai2001/super-memory/archive/refs/heads/main.zip)，无需 Git；需要更新现有仓库时再用 Git。安装目录已存在时，不要删除或覆盖，先询问用户。
+2. 在安装目录运行 `./install.sh`，自动为本机检测到的所有 harness 安装。
+3. macOS 的 launchd 任务由安装脚本自动注册；Linux 经用户确认后用 cron 每 6 小时执行 `scripts/digest.sh`。运行 `.venv/bin/supermemory status` 验证 CLI，并检查定时任务是否已生效。
+4. 安装后询问用户是否立即进行首次记忆蒸馏；确认后运行 `scripts/digest.sh --max-sessions 500`，检查 `~/.super-memory/digest.log`，最后汇报安装、定时任务和首次蒸馏结果。
+
+</details>
+
+### 手动安装
+
 ```bash
 git clone https://github.com/chaocai2001/super-memory.git
 cd super-memory
@@ -96,16 +116,6 @@ cd super-memory
 ./install.sh --harness opencode     # 只装 opencode（可重复传 --harness）
 ./install.sh --harness=kimi         # 只装 Kimi Code
 ./install.sh --harness=claude       # 只装 Claude Code
-```
-
-### 交给你的agent安装
-
-也可以把下面的提示词直接发给支持 shell 的 personal agent，由它完成安装，并引导首次记忆蒸馏和定时任务设置：
-
-```text
-请安装 super-memory：https://github.com/chaocai2001/super-memory
-
-克隆仓库并运行 ./install.sh，自动为本机检测到的所有 harness 安装记忆。自动识别当前 OS，采用项目支持的方式创建并验证定时蒸馏任务。安装后验证 CLI，再询问我是否立即进行首次记忆蒸馏；经我确认后运行 scripts/digest.sh --max-sessions 500。最后汇报安装、定时任务和首次蒸馏结果。
 ```
 
 安装脚本会依次完成：
