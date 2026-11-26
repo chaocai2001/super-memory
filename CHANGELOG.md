@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-26
+
 ### Added
 
 - `supermemory pending` 新增 `--idle-seconds N`：只提取至少 N 秒未更新的会话，并在 JSON 输出中通过 `deferred_sessions` 返回因活跃而推迟的会话数。
