@@ -11,7 +11,7 @@ super-memory gives AI agents **cross-session, cross-harness long-term memory**: 
 
 Currently supports [Codex](https://openai.com/codex/), [opencode](https://opencode.ai), [Kimi Code](https://www.kimi.com/code/), and [Claude Code](https://code.claude.com/); each harness adapter is self-contained (its own parser + skill template + digest worker). Adding a new harness is just another set of files — and all existing memory carries over.
 
-Distillation happens inside the agent session as a side effect, so no extra LLM API key is needed; no vector database, no server process.
+Background workers reuse each harness's CLI and subscription for distillation, so no extra LLM API key is needed; there is no vector database or resident server process.
 
 
 ## Why super-memory
@@ -52,8 +52,8 @@ Mainstream memory solutions fall into three camps; super-memory takes the third 
 
 **Distillation at zero extra cost.**
 
-- "Judging what's worth remembering" is done by the agent inside its own session, riding on the harness subscription you already pay for — no extra LLM API key to apply for and guard
-- Three automatic triggers (recall at session start, command-word trigger, scheduled launchd digestion) — just use codex / opencode / Kimi Code / Claude Code normally, nothing manual
+- Background workers decide what's worth remembering, riding on the harness subscription you already pay for — no extra LLM API key to apply for and guard
+- New tasks recall automatically; launchd / cron digests idle sessions in batches without adding an LLM call to the main conversation. Explicit remember/correction requests still write immediately
 
 **Deterministic and controllable.**
 
@@ -64,25 +64,29 @@ Mainstream memory solutions fall into three camps; super-memory takes the third 
 ## How it works
 
 ```
-   Three triggers (all automatic)
-   ─ session start (AGENTS.md / CLAUDE.md global instructions)
-   ─ command words (super-memory skill)
-   ─ scheduled digestion (launchd, every 6 hours)
-                 │
-                 ▼
-   supermemory pending --json ──► agent reads condensed transcripts
-                                  produces ops per wiki principles
-                 │
-                 ▼
-   supermemory apply ──► ~/.super-memory/wiki/
-   deterministic write + cursor    pages/ + index.md + log.md
-                 │
-                 ▼
-   New task starts: supermemory inject "keywords"
-   Relevant memory enters the agent's context
+Normal chat: write only the existing session log, no extra LLM on the hot path
+                  │
+                  ▼
+launchd / cron checks locally every 5 minutes
+  ├─ no changes or session still active: exit with zero token cost
+  └─ session idle for 10 minutes: start a background worker and digest in batches
+                  │
+                  ▼
+supermemory pending --json ──► agent reads condensed transcripts and produces ops
+                  │
+                  ▼
+supermemory apply ──► ~/.super-memory/wiki/
+deterministic write + cursor    pages/ + index.md + log.md
+                  │
+                  ▼
+New task starts: supermemory inject "keywords"
+Relevant memory enters the agent's context
+
+Explicit remember/correction: the main agent writes immediately without waiting for the scheduler
 ```
 
-- **Distillation is done by the agent**: the LLM only "judges", never "stores"; `apply` writes to disk after validating the ops schema
+- **Distillation is done by a background agent**: the LLM only "judges", never "stores"; `apply` writes to disk after validating the ops schema. Normal task startup recalls without digesting; explicit remember/correction requests still write immediately
+- **Eventual consistency**: automatic memories are usually searchable 10–15 minutes after a session becomes idle. Missed sleep/shutdown schedules are caught up after wake or login without losing source logs or cursors
 - **Acknowledgment contract**: the cursor advances only for sessions the agent explicitly lists in its results — batched digestion loses nothing, interruption is resumable
 - **Incremental and idempotent**: codex is read incrementally by byte offset, opencode by session update timestamp, Kimi Code by wire.jsonl byte offset, Claude Code by project JSONL byte offset; reruns do zero duplicate work, appends auto-dedupe
 - **Zero dependencies**: Python ≥ 3.11 standard library only, no third-party packages
@@ -102,8 +106,8 @@ Install super-memory from https://github.com/chaocai2001/super-memory by followi
 
 1. Check for Python >= 3.11. Prefer downloading and extracting [main.zip](https://github.com/chaocai2001/super-memory/archive/refs/heads/main.zip), which does not require Git; use Git when updating an existing repository. If the installation directory already exists, do not delete or overwrite it; ask the user first.
 2. Run `./install.sh` from the installation directory to install for every harness detected on the machine.
-3. The installer registers the launchd job on macOS. On Linux, ask for the user's consent before configuring cron to run `scripts/digest.sh` every 6 hours. Verify the CLI with `.venv/bin/supermemory status` and confirm that the scheduled job is active.
-4. Ask whether to run initial memory distillation. With the user's confirmation, run `scripts/digest.sh --max-sessions 500`, check `~/.super-memory/digest.log`, and report the installation, scheduled-job, and initial-distillation results.
+3. The installer registers the launchd job on macOS: checks every 5 minutes, digests after 10 idle minutes, and catches up after login or wake. On Linux, ask for the user's consent before configuring periodic cron plus `@reboot` to run `scripts/digest.sh`. Verify the CLI with `.venv/bin/supermemory status` and confirm that the scheduled job is active.
+4. Loading the job may first run a regular catch-up capped at 5 sessions; large historical backfill still requires user confirmation. With confirmation, run `scripts/digest.sh --max-sessions 500`, check `~/.super-memory/digest.log`, and report the installation, scheduled-job, and initial-distillation results.
 
 </details>
 
@@ -125,7 +129,7 @@ The install script performs, in order:
 2. Install the skill per harness (codex → `~/.codex/skills/super-memory/`; opencode → `~/.config/opencode/skills/super-memory/`; Kimi Code → `${KIMI_CODE_HOME:-~/.kimi-code}/skills/super-memory/`; Claude Code → `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/super-memory/`; trigger words: 记忆 / 消化积压 / 沉淀记忆 / remember / recall)
 3. Append the memory protocol block to each global instruction file (codex `~/.codex/AGENTS.md`; opencode `~/.config/opencode/AGENTS.md`; Kimi Code `${KIMI_CODE_HOME:-~/.kimi-code}/AGENTS.md`; Claude Code `${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md`) — idempotent, marker-commented, safe to reinstall
 4. **[codex only]** Merge `~/.super-memory` into `[sandbox_workspace_write].writable_roots` in `~/.codex/config.toml` (idempotent; lets the codex sandbox write the memory directory directly, so memory updates don't trigger approvals — works around auto_review approval-service 503s)
-5. Register the launchd job `com.supermemory.digest` (digests every 6 hours; skip with `./install.sh --no-launchd`)
+5. Register the launchd job `com.supermemory.digest` (checks every 5 minutes, digests after 10 idle minutes, catches up after login/wake; skip with `./install.sh --no-launchd`)
 
 Requirements: macOS (for the launchd job); on Linux the skill and protocol work as usual — run `scripts/digest.sh` from cron for scheduled digestion.
 
@@ -156,7 +160,7 @@ supermemory [--wiki-dir DIR] [--state-dir DIR] <command>
 
 | Command | Description |
 |---|---|
-| `pending [--json] [--limit N] [--source S]...` | List sessions pending digestion; `--json` emits a checkpoint for `apply`. `--source codex\|opencode\|kimi\|claude` is repeatable, defaults to auto-detecting installed harnesses; `--sessions-dir` / `--storage-dir` / `--db-path` / `--kimi-home` / `--claude-home` override default data locations (opencode prefers the sqlite db, falls back to the legacy JSON directory; Kimi Code defaults to `${KIMI_CODE_HOME:-~/.kimi-code}`; Claude Code defaults to `${CLAUDE_CONFIG_DIR:-~/.claude}`) |
+| `pending [--json] [--limit N] [--idle-seconds N] [--source S]...` | List sessions pending digestion; `--json` emits a checkpoint for `apply`, and `deferred_sessions` counts sessions postponed because they are still active. `--idle-seconds N` includes only sessions unchanged for at least N seconds (default 0 = no filter); deferred sessions do not advance cursors. `--source codex\|opencode\|kimi\|claude` is repeatable, defaults to auto-detecting installed harnesses; `--sessions-dir` / `--storage-dir` / `--db-path` / `--kimi-home` / `--claude-home` override default data locations (opencode prefers the sqlite db, falls back to the legacy JSON directory; Kimi Code defaults to `${KIMI_CODE_HOME:-~/.kimi-code}`; Claude Code defaults to `${CLAUDE_CONFIG_DIR:-~/.claude}`) |
 | `apply --ops FILE --checkpoint FILE` | Validate and persist ops JSON, advance cursors per the acknowledgment contract |
 | `inject <query>... [--max-chars N]` | Render the relevant-memory block for injection into a session (default 4000 chars); multiple query rephrasings (Chinese/English/synonyms) improve recall |
 | `search <query>... [-n N]` | Keyword search (English tokenize+stem, Chinese bigram+unigram); multiple queries supported |
@@ -168,15 +172,24 @@ The ops schema the agent produces and the wiki principles are documented in each
 ## Managing scheduled digestion
 
 ```bash
-scripts/digest.sh                                        # trigger once manually (auto-selects the harness worker)
+scripts/digest.sh                                        # trigger immediately (includes active sessions by default)
+scripts/digest.sh --idle-seconds 600                     # only digest sessions idle for at least 10 minutes
 scripts/digest.sh --max-sessions 200                     # digest at most 200 sessions in this run
 launchctl kickstart gui/$(id -u)/com.supermemory.digest  # trigger immediately
 launchctl print gui/$(id -u)/com.supermemory.digest      # check status
 ```
 
-- `digest.sh` is the scheduler: it exits immediately when there is no backlog (zero token cost); with a backlog it selects codex (`codex exec --ephemeral`, no new session logs), then opencode (`opencode run`, digest sessions skipped by fixed title prefix), then Kimi Code (`kimi -p`, digest sessions skipped by fixed prompt prefix), then Claude Code (`claude -p --no-session-persistence`, worker sessions are not saved)
-- Interval: the plist's `StartInterval` (default 21600 seconds = 6 hours)
-- Work per round: at most 50 sessions by default. For manual runs, `--max-sessions N` applies only to that run (overriding `SM_DIGEST_MAX_SESSIONS` for the worker without changing persistent configuration); without that command-line option, you can also use `SM_DIGEST_MAX_SESSIONS` or the plist's `SM_DIGEST_BATCHES` (default 10 batches × 5 sessions)
+- `digest.sh` is the scheduler: it exits immediately when there is no ready backlog (zero token cost); with a backlog it selects codex (`codex exec --ephemeral`, no new session logs), then opencode (`opencode run`, digest sessions skipped by fixed title prefix), then Kimi Code (`kimi -p`, digest sessions skipped by fixed prompt prefix), then Claude Code (`claude -p --no-session-persistence`, worker sessions are not saved)
+- macOS: `StartCalendarInterval` runs every 5 minutes and coalesces missed runs after sleep; `RunAtLoad=true` catches up after login/load. The default `SM_DIGEST_IDLE_SECONDS=600` defers active sessions without advancing their cursors
+- Linux: after user confirmation, configure these cron entries (replace `REPO_DIR` with the installation directory); `@reboot` catches up after shutdown, while the single-instance lock prevents overlap:
+
+  ```cron
+  */5 * * * * SM_DIGEST_IDLE_SECONDS=600 SM_DIGEST_MAX_SESSIONS=5 /bin/bash REPO_DIR/scripts/digest.sh >> "$HOME/.super-memory/digest.log" 2>&1
+  @reboot SM_DIGEST_IDLE_SECONDS=600 SM_DIGEST_MAX_SESSIONS=5 /bin/bash REPO_DIR/scripts/digest.sh >> "$HOME/.super-memory/digest.log" 2>&1
+  ```
+
+- Work per round: launchd/cron defaults to at most 5 sessions; manual runs default to 50. `--max-sessions N` applies only to that run. You can also use `SM_DIGEST_MAX_SESSIONS` or `SM_DIGEST_BATCHES` (default 10 batches × 5 sessions)
+- Mutual exclusion: scheduled and manual `digest.sh` runs share `~/.super-memory/digest.lock`; a new trigger exits immediately when another worker is active
 - Logs: `~/.super-memory/digest.log`
 - codex CLI lookup order: `CODEX_BIN` env var → PATH → `/Applications/ChatGPT.app/Contents/Resources/codex`; Kimi CLI lookup order: `KIMI_BIN` env var → PATH → `${KIMI_CODE_HOME:-~/.kimi-code}/bin/kimi`; Claude CLI lookup order: `CLAUDE_BIN` env var → PATH → `~/.local/bin/claude`
 
@@ -189,6 +202,7 @@ launchctl print gui/$(id -u)/com.supermemory.digest      # check status
   wiki/log.md            # session timeline
   state.json             # incremental cursors (codex/Kimi Code/Claude Code = byte offset, opencode = session update timestamp; delete to rescan everything)
   digest.log             # scheduled-job log
+  digest.lock            # scheduler mutex (the file may persist; the lock is held by the process)
 ```
 
 All memory is plain markdown — edit it directly, manage it with git, or open it in Obsidian. Wiki principles: one fact lives on exactly one page; pages cross-link; only long-term knowledge is recorded; every fact carries a source tag `(session <id>, <date>)` for traceability.

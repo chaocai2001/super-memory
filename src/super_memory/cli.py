@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from datetime import date as date_type
 from pathlib import Path
 
@@ -17,6 +18,13 @@ from .wiki import DEFAULT_WIKI_DIR, WikiStore
 
 def _date_of(ts: str) -> str:
     return ts[:10] if ts else date_type.today().isoformat()
+
+
+def _non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be a non-negative integer")
+    return parsed
 
 
 def _resolve_sources(selected: list[str] | None) -> list[str]:
@@ -99,9 +107,12 @@ def _render_unit(transcript, source: str) -> str:
 def _collect_pending(state: State, limit: int = 0, sources: list[str] | None = None,
                      sessions_dir: Path | None = None, storage_dir: Path | None = None,
                      db_path: Path | None = None, kimi_home: Path | None = None,
-                     claude_home: Path | None = None) -> list[dict]:
-    """Parse every enabled source past its saved cursor; return pending session chunks."""
+                     claude_home: Path | None = None,
+                     idle_seconds: int = 0) -> tuple[list[dict], int]:
+    """Parse enabled sources past their saved cursors, optionally deferring active sessions."""
     pending = []
+    deferred = 0
+    now_ms = int(time.time() * 1000)
     units: list[tuple[str, str]] = []
     for source in _resolve_sources(sources):
         units += _source_units(source, state, sessions_dir, storage_dir, db_path, kimi_home, claude_home)
@@ -115,6 +126,15 @@ def _collect_pending(state: State, limit: int = 0, sources: list[str] | None = N
             continue
         if end_cursor == cursor:
             continue
+        if idle_seconds:
+            try:
+                last_activity_ms = (int(end_cursor) if source == "opencode"
+                                    else int(Path(key).stat().st_mtime * 1000))
+            except OSError:
+                continue
+            if now_ms - last_activity_ms < idle_seconds * 1000:
+                deferred += 1
+                continue
         if transcript is None or not transcript.has_content():
             state.mark_distilled(key, end_cursor, transcript.session_id if transcript else "")
             continue
@@ -127,7 +147,7 @@ def _collect_pending(state: State, limit: int = 0, sources: list[str] | None = N
             "turns": len(transcript.turns),
             "transcript": _render_unit(transcript, source),
         })
-    return pending
+    return pending, deferred
 
 
 def cmd_ingest(args) -> int:
@@ -214,18 +234,23 @@ def cmd_pending(args) -> int:
     db_path = Path(args.db_path).expanduser() if args.db_path else None
     kimi_home = Path(args.kimi_home).expanduser() if args.kimi_home else None
     claude_home = Path(args.claude_home).expanduser() if args.claude_home else None
-    pending = _collect_pending(state, limit=args.limit, sources=args.source,
-                               sessions_dir=sessions_dir, storage_dir=storage_dir, db_path=db_path,
-                               kimi_home=kimi_home, claude_home=claude_home)
+    pending, deferred = _collect_pending(
+        state, limit=args.limit, sources=args.source,
+        sessions_dir=sessions_dir, storage_dir=storage_dir, db_path=db_path,
+        kimi_home=kimi_home, claude_home=claude_home, idle_seconds=args.idle_seconds,
+    )
     state.save()
 
     if args.json:
         out = {
             "index": wiki.index_summary(),
+            "deferred_sessions": deferred,
             "sessions": pending,
         }
         print(json.dumps(out, ensure_ascii=False, indent=2))
     else:
+        if deferred:
+            print(f"{deferred} active session(s) deferred until idle", file=sys.stderr)
         if not pending:
             print("no pending sessions")
             return 0
@@ -253,8 +278,7 @@ def cmd_apply(args) -> int:
     results = ops_data.get("sessions")
     if results is None:
         results = [ops_data]
-    acked = {str(r.get("session_id", "")) for r in results if isinstance(r, dict)}
-    acked.discard("")
+    acked = set()
 
     total_applied = 0
     for result in results:
@@ -270,6 +294,8 @@ def cmd_apply(args) -> int:
         applied = wiki.apply_ops(clean["ops"], source_tag, today=sess_date)
         if clean.get("log_entry"):
             wiki.append_log(sess_date, meta.get("cwd", ""), clean["log_entry"], session_id)
+        if session_id:
+            acked.add(session_id)
         total_applied += len(applied)
         if applied:
             print(f"session {session_id[:8]}: {', '.join(applied)}")
@@ -358,6 +384,8 @@ def main(argv: list[str] | None = None) -> int:
                            help="harness to read (repeatable; default: auto-detect all present)")
     p_pending.add_argument("--json", action="store_true", help="emit JSON checkpoint usable by 'apply'")
     p_pending.add_argument("--limit", type=int, default=0, help="max sessions per batch (0 = all)")
+    p_pending.add_argument("--idle-seconds", type=_non_negative_int, default=0, metavar="N",
+                           help="only include sessions unchanged for at least N seconds (0 = include active sessions)")
     p_pending.set_defaults(func=cmd_pending)
 
     p_apply = sub.add_parser("apply", help="apply wiki ops JSON produced by an agent, then checkpoint")

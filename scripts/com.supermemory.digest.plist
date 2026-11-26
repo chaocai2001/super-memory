@@ -9,18 +9,33 @@
         <string>/bin/bash</string>
         <string>@REPO_DIR@/scripts/digest.sh</string>
     </array>
-    <key>StartInterval</key>
-    <integer>21600</integer>
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Minute</key><integer>5</integer></dict>
+        <dict><key>Minute</key><integer>10</integer></dict>
+        <dict><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Minute</key><integer>20</integer></dict>
+        <dict><key>Minute</key><integer>25</integer></dict>
+        <dict><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Minute</key><integer>35</integer></dict>
+        <dict><key>Minute</key><integer>40</integer></dict>
+        <dict><key>Minute</key><integer>45</integer></dict>
+        <dict><key>Minute</key><integer>50</integer></dict>
+        <dict><key>Minute</key><integer>55</integer></dict>
+    </array>
     <key>RunAtLoad</key>
-    <false/>
+    <true/>
     <key>StandardOutPath</key>
     <string>@HOME@/.super-memory/digest.log</string>
     <key>StandardErrorPath</key>
     <string>@HOME@/.super-memory/digest.log</string>
     <key>EnvironmentVariables</key>
     <dict>
-        <key>SM_DIGEST_BATCHES</key>
-        <string>10</string>
+        <key>SM_DIGEST_MAX_SESSIONS</key>
+        <string>5</string>
+        <key>SM_DIGEST_IDLE_SECONDS</key>
+        <string>600</string>
         <key>KIMI_CODE_HOME</key>
         <string>@KIMI_CODE_HOME@</string>
         <key>CLAUDE_CONFIG_DIR</key>

@@ -5,6 +5,7 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SM="$REPO_DIR/.venv/bin/supermemory"
+IDLE_SECONDS="${SM_DIGEST_IDLE_SECONDS:-0}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -20,9 +21,22 @@ while [[ $# -gt 0 ]]; do
             MAX_SESSIONS="${1#--max-sessions=}"
             shift
             ;;
+        --idle-seconds)
+            if [[ $# -lt 2 ]]; then
+                echo "--idle-seconds requires a non-negative integer" >&2
+                exit 2
+            fi
+            IDLE_SECONDS="$2"
+            shift 2
+            ;;
+        --idle-seconds=*)
+            IDLE_SECONDS="${1#--idle-seconds=}"
+            shift
+            ;;
         -h|--help)
-            echo "usage: ./scripts/digest.sh [--max-sessions N]"
+            echo "usage: ./scripts/digest.sh [--max-sessions N] [--idle-seconds N]"
             echo "  --max-sessions N  limit sessions per run; overrides SM_DIGEST_MAX_SESSIONS"
+            echo "  --idle-seconds N  only digest sessions idle for N seconds (default: 0)"
             exit 0
             ;;
         *)
@@ -40,9 +54,36 @@ if [[ ${MAX_SESSIONS+x} ]]; then
     export SM_DIGEST_MAX_SESSIONS="$MAX_SESSIONS"
 fi
 
-if ! "$SM" pending --json --limit 1 | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin)['sessions'] else 1)"; then
-    echo "$(date '+%F %T') no pending sessions, skip"
+if ! [[ "$IDLE_SECONDS" =~ ^[0-9]+$ ]]; then
+    echo "--idle-seconds/SM_DIGEST_IDLE_SECONDS requires a non-negative integer" >&2
+    exit 2
+fi
+export SM_DIGEST_IDLE_SECONDS="$IDLE_SECONDS"
+
+LOCK_FILE="${SM_DIGEST_LOCK_FILE:-$HOME/.super-memory/digest.lock}"
+mkdir -p "$(dirname "$LOCK_FILE")"
+exec 9>"$LOCK_FILE"
+if ! python3 -c 'import fcntl, sys
+try:
+    fcntl.flock(int(sys.argv[1]), fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    sys.exit(1)' 9; then
+    echo "$(date '+%F %T') another digest is running, skip"
     exit 0
+fi
+
+PENDING="$("$SM" pending --json --idle-seconds "$IDLE_SECONDS" --limit 1)"
+PENDING_STATUS=0
+PENDING_SUMMARY="$(python3 -c 'import json,sys
+data = json.load(sys.stdin)
+deferred = data.get("deferred_sessions", 0)
+print(f"{deferred} active session(s) deferred" if deferred else "")
+sys.exit(0 if data["sessions"] else 2)' <<<"$PENDING")" || PENDING_STATUS=$?
+if [[ $PENDING_STATUS -eq 2 ]]; then
+    echo "$(date '+%F %T') no ready pending sessions${PENDING_SUMMARY:+, $PENDING_SUMMARY}, skip"
+    exit 0
+elif [[ $PENDING_STATUS -ne 0 ]]; then
+    exit "$PENDING_STATUS"
 fi
 
 if [[ -n "${CODEX_BIN:-}" ]] || command -v codex >/dev/null 2>&1 \

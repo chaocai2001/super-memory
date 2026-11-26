@@ -11,7 +11,7 @@ super-memory 给 AI agent 装上**跨会话、跨 harness 的长期记忆**：ag
 
 目前支持 [Codex](https://openai.com/codex/)、[opencode](https://opencode.ai)、[Kimi Code](https://www.kimi.com/code/) 和 [Claude Code](https://code.claude.com/)；每个 harness 的适配相互独立（解析器 + skill 模板 + 消化 worker 各一套），接入新 harness 只需照此加一组文件，记忆天然继承。
 
-蒸馏由 agent 在会话中顺带完成，不需要额外的 LLM API key；没有向量数据库，没有服务进程。
+蒸馏由后台 worker 复用各 harness 的 CLI 和订阅完成，不需要额外的 LLM API key；没有向量数据库，也没有常驻服务进程。
 
 
 ## 优势
@@ -51,8 +51,8 @@ super-memory 给 AI agent 装上**跨会话、跨 harness 的长期记忆**：ag
 
 **蒸馏零额外成本。**
 
-- 「判断什么值得记」由 agent 自己在会话中完成，沿用你已付费的 harness 订阅，不需要额外申请和保管 LLM API key
-- 三种自动触发（会话开始召回、口令触发、launchd 定时消化），正常使用 codex / opencode / Kimi Code / Claude Code 即可，无需任何手动操作
+- 「判断什么值得记」由后台 worker 完成，沿用你已付费的 harness 订阅，不需要额外申请和保管 LLM API key
+- 新任务自动召回；普通会话静默后由 launchd / cron 自动批量消化，主对话不额外调用 LLM；「记住 / 纠正」等显式请求仍立即写入
 
 **确定性与可控性。**
 
@@ -63,25 +63,29 @@ super-memory 给 AI agent 装上**跨会话、跨 harness 的长期记忆**：ag
 ## 工作原理
 
 ```
-   三种触发（全部自动）                                  
-   ─ 会话开始（AGENTS.md / CLAUDE.md 全局指令）
-   ─ 口令触发（super-memory skill）                      
-   ─ 定时消化（launchd，每 6 小时）                      
-                 │                                       
-                 ▼                                       
-   supermemory pending --json ──► agent 阅读浓缩转录     
-                                 按 wiki 原则产出 ops    
-                 │                                       
-                 ▼                                       
-   supermemory apply ──► ~/.super-memory/wiki/           
-   确定性落盘 + 推进游标      pages/ + index.md + log.md 
-                 │                                       
-                 ▼                                       
-   新任务开始: supermemory inject "关键词"               
-   相关记忆进入 agent 上下文                               
+普通对话：只写原有会话日志，主链路零额外 LLM
+                  │
+                  ▼
+launchd / cron 每 5 分钟本地检查
+  ├─ 无新增或会话仍活跃：退出，零 token
+  └─ 会话静默 10 分钟：启动后台 worker 批量消化
+                  │
+                  ▼
+supermemory pending --json ──► agent 阅读浓缩转录，产出 ops
+                  │
+                  ▼
+supermemory apply ──► ~/.super-memory/wiki/
+确定性落盘 + 推进游标   pages/ + index.md + log.md
+                  │
+                  ▼
+新任务开始：supermemory inject "关键词"
+相关记忆进入 agent 上下文
+
+显式「记住 / 纠正」：主 agent 立即写 wiki，不等后台调度
 ```
 
-- **蒸馏由 agent 完成**：LLM 只做"判断"，不碰"存储"；`apply` 校验 ops schema 后落盘
+- **蒸馏由后台 agent 完成**：LLM 只做"判断"，不碰"存储"；`apply` 校验 ops schema 后落盘。普通任务开始只召回，不顺带消化；显式「记住 / 纠正」仍立即写入 wiki
+- **最终一致**：自动记忆通常在会话静默 10–15 分钟后可检索；睡眠、关机期间错过的调度会在唤醒或登录后补跑，原始日志和游标不会丢失
 - **确认契约**：只有被 agent 明确列入结果的 session 才推进游标，分批消化不丢数据、中断可续
 - **增量幂等**：codex 按字节偏移增量读取，opencode 按 session 更新时间戳、Kimi Code 按 wire.jsonl 字节偏移、Claude Code 按项目 JSONL 字节偏移增量读取；重复运行零重复工作，append 自动去重
 - **零依赖**：Python ≥ 3.11 标准库实现，无第三方包
@@ -101,8 +105,8 @@ super-memory 给 AI agent 装上**跨会话、跨 harness 的长期记忆**：ag
 
 1. 检查 Python >= 3.11。优先下载并解压 [main.zip](https://github.com/chaocai2001/super-memory/archive/refs/heads/main.zip)，无需 Git；需要更新现有仓库时再用 Git。安装目录已存在时，不要删除或覆盖，先询问用户。
 2. 在安装目录运行 `./install.sh`，自动为本机检测到的所有 harness 安装。
-3. macOS 的 launchd 任务由安装脚本自动注册；Linux 经用户确认后用 cron 每 6 小时执行 `scripts/digest.sh`。运行 `.venv/bin/supermemory status` 验证 CLI，并检查定时任务是否已生效。
-4. 安装后询问用户是否立即进行首次记忆蒸馏；确认后运行 `scripts/digest.sh --max-sessions 500`，检查 `~/.super-memory/digest.log`，最后汇报安装、定时任务和首次蒸馏结果。
+3. macOS 的 launchd 任务由安装脚本自动注册：每 5 分钟检查，静默 10 分钟后消化，登录与睡眠唤醒后补跑。Linux 经用户确认后用周期 cron + `@reboot` 执行 `scripts/digest.sh`。运行 `.venv/bin/supermemory status` 验证 CLI，并检查定时任务是否已生效。
+4. 安装加载时可能先做一次最多 5 个会话的常规补跑；大规模首次回灌仍需询问用户。确认后运行 `scripts/digest.sh --max-sessions 500`，检查 `~/.super-memory/digest.log`，最后汇报安装、定时任务和首次蒸馏结果。
 
 </details>
 
@@ -124,7 +128,7 @@ cd super-memory
 2. 按 harness 安装 skill（codex → `~/.codex/skills/super-memory/`；opencode → `~/.config/opencode/skills/super-memory/`；Kimi Code → `${KIMI_CODE_HOME:-~/.kimi-code}/skills/super-memory/`；Claude Code → `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/super-memory/`；触发词：记忆 / 消化积压 / 沉淀记忆 / remember / recall）
 3. 向对应全局指令文件追加记忆协议块（codex `~/.codex/AGENTS.md`；opencode `~/.config/opencode/AGENTS.md`；Kimi Code `${KIMI_CODE_HOME:-~/.kimi-code}/AGENTS.md`；Claude Code `${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md`；幂等，带标记注释，可安全重装）
 4. 【仅 codex】把 `~/.super-memory` 合并进 `~/.codex/config.toml` 的 `[sandbox_workspace_write].writable_roots`（幂等；让 codex 沙箱直接可写记忆目录，记忆更新不触发审批，规避 auto_review 审批服务 503）
-5. 注册 launchd 定时任务 `com.supermemory.digest`（每 6 小时消化一次；`./install.sh --no-launchd` 可跳过）
+5. 注册 launchd 定时任务 `com.supermemory.digest`（每 5 分钟检查、会话静默 10 分钟后消化，登录/唤醒后补跑；`./install.sh --no-launchd` 可跳过）
 
 要求：macOS（launchd 定时任务）；Linux 下 skill 与协议照常工作，定时消化可自行用 cron 跑 `scripts/digest.sh`。
 
@@ -155,7 +159,7 @@ supermemory [--wiki-dir DIR] [--state-dir DIR] <command>
 
 | 命令 | 说明 |
 |---|---|
-| `pending [--json] [--limit N] [--source S]...` | 列出有待消化的会话；`--json` 输出 checkpoint 供 `apply` 使用。`--source codex\|opencode\|kimi\|claude` 可重复，缺省自动探测本机已有的 harness；`--sessions-dir` / `--storage-dir` / `--db-path` / `--kimi-home` / `--claude-home` 可覆盖默认数据位置（opencode 优先读 sqlite db，无 db 时回落旧版 JSON 目录；Kimi Code 默认读 `${KIMI_CODE_HOME:-~/.kimi-code}`；Claude Code 默认读 `${CLAUDE_CONFIG_DIR:-~/.claude}`） |
+| `pending [--json] [--limit N] [--idle-seconds N] [--source S]...` | 列出有待消化的会话；`--json` 输出 checkpoint 供 `apply` 使用，`deferred_sessions` 表示因仍在活跃而推迟的数量。`--idle-seconds N` 只返回至少 N 秒未更新的会话，默认 0 不过滤；被推迟的会话不会推进游标。`--source codex\|opencode\|kimi\|claude` 可重复，缺省自动探测本机已有的 harness；`--sessions-dir` / `--storage-dir` / `--db-path` / `--kimi-home` / `--claude-home` 可覆盖默认数据位置（opencode 优先读 sqlite db，无 db 时回落旧版 JSON 目录；Kimi Code 默认读 `${KIMI_CODE_HOME:-~/.kimi-code}`；Claude Code 默认读 `${CLAUDE_CONFIG_DIR:-~/.claude}`） |
 | `apply --ops FILE --checkpoint FILE` | 校验并落盘 ops JSON，按确认契约推进游标 |
 | `inject <query>... [--max-chars N]` | 输出可注入会话的相关记忆块（默认 4000 字符）；query 可传多个改写（中英/同义词）提高召回 |
 | `search <query>... [-n N]` | 关键词检索（英文分词+词干、中文 bigram+unigram）；query 可传多个 |
@@ -167,15 +171,24 @@ agent 产出的 ops schema 与 wiki 原则详见各 harness 的 skill 模板（`
 ## 定时消化管理
 
 ```bash
-scripts/digest.sh                                        # 手动触发一次（自动选择 harness worker）
+scripts/digest.sh                                        # 手动立即触发（默认不过滤活跃会话）
+scripts/digest.sh --idle-seconds 600                     # 只消化已静默 10 分钟的会话
 scripts/digest.sh --max-sessions 200                     # 本次最多消化 200 个会话
 launchctl kickstart gui/$(id -u)/com.supermemory.digest  # 立即触发
 launchctl print gui/$(id -u)/com.supermemory.digest      # 查看状态
 ```
 
-- `digest.sh` 是调度器：无积压直接退出（零 token 消耗）；有积压时按 codex（`codex exec --ephemeral`，不产生新会话日志）→ opencode（`opencode run`，按固定标题前缀跳过消化会话）→ Kimi Code（`kimi -p`，按固定 prompt 前缀跳过消化会话）→ Claude Code（`claude -p --no-session-persistence`，不保存 worker 会话）的顺序选择 worker
-- 间隔：plist 的 `StartInterval`（默认 21600 秒 = 6 小时）
-- 每轮消化量：默认最多 50 个会话；手动执行时 `--max-sessions N` 仅对本次运行生效（覆盖本次的 `SM_DIGEST_MAX_SESSIONS`，不修改持久配置）；未传该命令行参数时，也可用 `SM_DIGEST_MAX_SESSIONS` 或 plist 的 `SM_DIGEST_BATCHES`（默认 10 批 × 5 会话）调整
+- `digest.sh` 是调度器：无 ready backlog 直接退出（零 token 消耗）；有积压时按 codex（`codex exec --ephemeral`，不产生新会话日志）→ opencode（`opencode run`，按固定标题前缀跳过消化会话）→ Kimi Code（`kimi -p`，按固定 prompt 前缀跳过消化会话）→ Claude Code（`claude -p --no-session-persistence`，不保存 worker 会话）的顺序选择 worker
+- macOS：`StartCalendarInterval` 每 5 分钟触发，睡眠唤醒后合并补跑；`RunAtLoad=true` 在登录/加载后补跑。默认 `SM_DIGEST_IDLE_SECONDS=600`，活跃会话只推迟、不推进游标
+- Linux：经用户确认后配置以下 cron（把 `REPO_DIR` 替换为安装目录）；`@reboot` 负责关机后的补跑，单实例锁避免与周期任务重叠：
+
+  ```cron
+  */5 * * * * SM_DIGEST_IDLE_SECONDS=600 SM_DIGEST_MAX_SESSIONS=5 /bin/bash REPO_DIR/scripts/digest.sh >> "$HOME/.super-memory/digest.log" 2>&1
+  @reboot SM_DIGEST_IDLE_SECONDS=600 SM_DIGEST_MAX_SESSIONS=5 /bin/bash REPO_DIR/scripts/digest.sh >> "$HOME/.super-memory/digest.log" 2>&1
+  ```
+
+- 每轮消化量：launchd/cron 默认最多 5 个会话；手工执行默认最多 50 个，`--max-sessions N` 仅对本次运行生效。也可用 `SM_DIGEST_MAX_SESSIONS` 或 `SM_DIGEST_BATCHES`（默认 10 批 × 5 会话）调整
+- 互斥：定时和手工 `digest.sh` 共用 `~/.super-memory/digest.lock`；已有 worker 运行时，新触发直接退出
 - 日志：`~/.super-memory/digest.log`
 - codex CLI 定位顺序：`CODEX_BIN` 环境变量 → PATH → `/Applications/ChatGPT.app/Contents/Resources/codex`；Kimi CLI 定位顺序：`KIMI_BIN` 环境变量 → PATH → `${KIMI_CODE_HOME:-~/.kimi-code}/bin/kimi`；Claude CLI 定位顺序：`CLAUDE_BIN` 环境变量 → PATH → `~/.local/bin/claude`
 
@@ -188,6 +201,7 @@ launchctl print gui/$(id -u)/com.supermemory.digest      # 查看状态
   wiki/log.md            # 会话时间线
   state.json             # 增量游标（codex/Kimi Code/Claude Code=字节偏移，opencode=session 更新时间戳；删除后全量重扫）
   digest.log             # 定时任务日志
+  digest.lock            # 定时/手工调度单实例锁（文件可长期存在，锁由进程持有）
 ```
 
 所有记忆都是纯 markdown——可以直接编辑、git 管理、或用 Obsidian 打开。wiki 原则：一个事实只住一个页面；页面互链；只记长期知识；每条事实带来源标签 `(session <id>, <date>)` 可回溯。

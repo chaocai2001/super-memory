@@ -20,7 +20,7 @@ for arg in "$@"; do
             exit 2 ;;
         -h|--help)
             echo "usage: ./install.sh [--no-launchd] [--harness codex|opencode|kimi|claude|all]"
-            echo "  --no-launchd    只安装 CLI 与 harness 集成，不注册 6 小时定时消化任务"
+            echo "  --no-launchd    只安装 CLI 与 harness 集成，不注册定时消化任务"
             echo "  --harness       安装目标 harness，可重复传；缺省 all = 对本机检测到的 harness 全部安装"
             exit 0 ;;
         *) echo "unknown option: $arg" >&2; exit 2 ;;
@@ -147,9 +147,9 @@ fi
 # 6. launchd 定时消化（仅 macOS）
 if [[ "$WITH_LAUNCHD" -eq 1 ]]; then
     if [[ "$(uname)" != "Darwin" ]]; then
-        step "非 macOS，跳过 launchd（可用 cron 代替：每 6 小时执行 $REPO_DIR/scripts/digest.sh）"
+        step "非 macOS，跳过 launchd（经用户确认后可配置 cron：每 5 分钟检查，@reboot 补跑）"
     else
-        step "注册 launchd 定时消化（每 6 小时）"
+        step "注册 launchd 定时消化（每 5 分钟检查，登录/唤醒后补跑）"
         PLIST="$HOME/Library/LaunchAgents/com.supermemory.digest.plist"
         mkdir -p "$HOME/Library/LaunchAgents" "$HOME/.super-memory"
         sed -e "s|@REPO_DIR@|$REPO_DIR|g" -e "s|@HOME@|$HOME|g" \
@@ -167,7 +167,8 @@ step "安装完成"
 cat <<EOF
 
 接下来：
-  - 正常使用已安装的 harness（codex / opencode / Kimi Code / Claude Code）即可：新会话开始非平凡任务时会自动召回记忆并消化积压
+  - 正常使用已安装的 harness（codex / opencode / Kimi Code / Claude Code）即可：新任务自动召回记忆，后台定时器在会话静默后自动消化
+  - macOS 安装加载时会先做一次小批量补跑检查；Linux 可由 agent 在确认后配置周期 cron 和 @reboot
   - 手动触发一次消化（默认最多 50 个会话）: $REPO_DIR/scripts/digest.sh
   - 首次构建记忆且历史会话较多时，可调大单次上限: $REPO_DIR/scripts/digest.sh --max-sessions 500
   - 口令触发: 在 harness 里说「消化积压」「沉淀记忆」「记住: ...」

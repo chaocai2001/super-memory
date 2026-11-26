@@ -1,6 +1,6 @@
 ---
 name: super-memory
-description: Persistent long-term memory for the agent, stored as an LLM-curated markdown wiki built from Claude Code session logs. Use at the START of every non-trivial task to recall relevant memory (supermemory inject), and to digest past sessions into the wiki (pending → apply). Triggers on "记忆", "remember", "recall", "之前我们", "上次", "memory", "消化积压", "沉淀记忆", or whenever prior context from earlier sessions would help.
+description: Persistent long-term memory for the agent, stored as an LLM-curated markdown wiki built from Claude Code session logs. Use at the START of every non-trivial task to recall relevant memory (supermemory inject); use pending → apply only when explicitly asked to digest or when running as the background digest worker. Triggers on "记忆", "remember", "recall", "之前我们", "上次", "memory", "消化积压", "沉淀记忆", or whenever prior context from earlier sessions would help.
 ---
 
 # Super-Memory：持久记忆协议
@@ -25,9 +25,9 @@ $SM inject "<任务关键词>" "<同义/英文说法>" "<相关说法>" --max-ch
 - 输出 "no relevant memory found" 时，换一组改写查询再试一次（例如 "网关" 换成 "gateway" / "MCP proxy"）；仍无命中属正常，继续任务即可，不要反复重试。
 - 也可以用 `$SM search "<关键词1>" "<关键词2>" -n 5` 浏览命中页面路径后，直接 Read 对应 `~/.super-memory/wiki/pages/*.md` 深读。
 
-## 协议二：蒸馏历史会话（后台消化，必做）
+## 协议二：蒸馏历史会话（后台自动，交互按需）
 
-在任务开始召回之后、或会话空闲时，检查并消化积压的历史会话，每批 5 条：
+后台调度器会在会话静默后自动消化积压。普通任务开始时和会话空闲时不要顺带执行本协议；只有当你是无人值守 digest worker，或用户明确要求「消化积压 / 沉淀记忆」时才执行。每批 5 条：
 
 ```bash
 $SM pending --json --limit 5 > /tmp/sm-pending.json
@@ -77,7 +77,7 @@ $SM apply --ops /tmp/sm-ops.json --checkpoint /tmp/sm-pending.json
 
 ## 其他
 
-- 当前会话的日志会在下次会话时自动进入 pending 积压 —— 不需要在会话进行中蒸馏自己，协议二会自然覆盖。
+- 当前会话会在静默后由后台 worker 自动消化，不要在会话进行中蒸馏自己；显式「记住 / 纠正」仍应立即写入 wiki。
 - `$SM status` 查看 wiki 页面数与消化进度。
 - 在 Claude Code 交互会话中更新长期记忆时，只使用协议二的 `pending → ops → apply`，不要调用 `$SM ingest`。`ingest` 使用独立的 OpenAI 兼容 API 配置（`SUPER_MEMORY_BASE_URL/API_KEY/MODEL` → codex/opencode/Kimi Code），不共享 Claude Code 的 OAuth 或 `apiKeyHelper`，独立凭证失效时会返回 401。
 - 无人值守消化由 `claude -p --no-session-persistence` 执行，不保存 worker 会话日志。
