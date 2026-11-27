@@ -7,7 +7,7 @@
     <img src="promo/super-memory-30s-en.gif" alt="Super Memory demo: save a project convention in Codex and recall it in a new Claude Code session" width="800">
   </a>
 </p>
-<p align="center"><sub>Super Memory in 30 seconds: digest once, reuse across sessions and harnesses. The GIF autoplays; click it for the MP4 with audio.</sub></p>
+<p align="center"><sub>Super Memory in 30 seconds: digest once, reuse across sessions and harnesses. The GIF autoplays, or <a href="promo/super-memory-30s-en.mp4">play the MP4 with audio</a>.</sub></p>
 
 **Every new session, your AI agent forgets everything. Switch harnesses, and your memory resets to zero. And platform-built-in memory? You can't see it, edit it, or take it with you.**
 

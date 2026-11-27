@@ -7,7 +7,7 @@
     <img src="promo/super-memory-30s.gif" alt="super-memory 中文演示：Codex 写入项目约定，Claude Code 新会话自动召回" width="800">
   </a>
 </p>
-<p align="center"><sub>30 秒看懂 super-memory：一次蒸馏，跨会话、跨 harness 复用。动图自动播放，点击查看有声 MP4。</sub></p>
+<p align="center"><sub>30 秒看懂 super-memory：一次蒸馏，跨会话、跨 harness 复用。动图自动播放，或 <a href="promo/super-memory-30s.mp4">直接播放有声 MP4</a>。</sub></p>
 
 **每次开新会话，你的 AI agent 就失忆一次；换个 harness，记忆直接归零；而平台内置的记忆，你又看不见、改不了、带不走。**
 
