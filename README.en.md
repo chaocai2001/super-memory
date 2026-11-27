@@ -2,6 +2,13 @@
 
 # Super Memory -- Cross-harness long-term memory for AI agents
 
+<p align="center">
+  <a href="promo/super-memory-30s-en.mp4">
+    <img src="promo/super-memory-30s-en.gif" alt="Super Memory demo: save a project convention in Codex and recall it in a new Claude Code session" width="800">
+  </a>
+</p>
+<p align="center"><sub>Super Memory in 30 seconds: digest once, reuse across sessions and harnesses. The GIF autoplays; click it for the MP4 with audio.</sub></p>
+
 **Every new session, your AI agent forgets everything. Switch harnesses, and your memory resets to zero. And platform-built-in memory? You can't see it, edit it, or take it with you.**
 
 super-memory gives AI agents **cross-session, cross-harness long-term memory**: the agent itself distills what's worth remembering (architecture decisions, project conventions, pitfalls and their fixes, environment facts, your preferences) into a local, plain-markdown **LLM wiki** (the memory organization pattern proposed by Karpathy), and any new session in any harness automatically recalls it. Two design choices, two benefits you can feel directly:
